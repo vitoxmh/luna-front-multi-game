@@ -18,7 +18,9 @@ HTML/CSS/JS). Runs on **Windows and Linux**.
   wheel for ROMs.
 - Backgrounds with blur/brightness/vignette, animated snap (video or image) per
   game, and info panel.
-- Automatic emulator launch configured per platform (RetroArch, MAME, etc.).
+- Automatic emulator launch configured per platform. Works with **any
+  emulator** (MAME, RetroArch, Flycast, Dolphin, etc.) whether standalone
+  or as RetroArch cores.
 - ROM scanning with JSON cache (fast startup).
 - Game metadata scraping: year, genre, players, manufacturer (IGDB / RAWG /
   Wikipedia).
@@ -212,11 +214,22 @@ Each entry is an emulator/platform. Example:
 | `{romname}` | Filename without extension or path |
 | `{core}` | RetroArch core from the subcategory (if any) |
 
-Examples:
+Examples -- the emulator is fully configurable per platform, it does **not**
+depend on RetroArch. You can use standalone executables (MAME, Flycast, etc.)
+or RetroArch cores:
 
 ```text
-MAME:      -L mame2003_plus_libretro --fullscreen {rompath}
-RetroArch: -L fbneo_libretro.dll --fullscreen {rompath}
+MAME (standalone):
+    executable:  mame
+    launch_args: {romname} -rompath {romdir} -nowindow
+
+RetroArch (with MAME core):
+    executable:  retroarch
+    launch_args: -L mame2003_plus_libretro --fullscreen {rompath}
+
+RetroArch (with FBNeo core):
+    executable:  retroarch
+    launch_args: -L fbneo_libretro.dll --fullscreen {rompath}
 ```
 
 If `launch_args` is not defined, `{rompath}` is used by default.
@@ -458,11 +471,18 @@ need `sudo usermod -a -G input $USER` and a logout/login.
 
 Free project. Uses PySide6 (LGPL), pygame-ce (LGPL), and Python.
 
+### Contact
+
+Follow me on social media:
+
+- **X / Twitter**: [@vitoxmh](https://x.com/vitoxmh)
+- **Instagram**: [juego_terminado](https://www.instagram.com/juego_terminado/)
+
 ---
 
 <a id="espanol"></a>
 
-## Espanol
+## Español
 
 Frontend para seleccionar y lanzar ROMs de emuladores con rueda giratoria 3D
 estilo Hyperspin. Escrito 100% en Python nativo con **PySide6** (sin
@@ -474,8 +494,9 @@ HTML/CSS/JS). Funciona en **Windows y Linux**.
   rueda con las ROMs.
 - Fondos con blur/brillo/vignette, snap animado (video o imagen) por juego y
   panel de informacion.
-- Lanzamiento automatico del emulador configurado por plataforma (RetroArch,
-  MAME, etc.).
+- Lanzamiento automatico del emulador configurado por plataforma. Funciona
+  con **cualquier emulador** (MAME, RetroArch, Flycast, Dolphin, etc.) ya
+  sea standalone o como core de RetroArch.
 - Escaneo de ROMs con cache en JSON (arranque rapido).
 - Scraping de info de juegos: anio, genero, jugadores, fabricante (IGDB / RAWG /
   Wikipedia).
@@ -674,11 +695,22 @@ Cada entrada es un emulador/plataforma. Ejemplo:
 | `{romname}` | Nombre del archivo sin extension ni ruta |
 | `{core}` | Core RetroArch de la subcategoria (si existe) |
 
-Ejemplos:
+Ejemplos -- el emulador es totalmente configurable por plataforma, **no
+depende de RetroArch**. Se puede usar ejecutables standalone (MAME, Flycast,
+etc.) o cores de RetroArch:
 
 ```text
-MAME:      -L mame2003_plus_libretro --fullscreen {rompath}
-RetroArch: -L fbneo_libretro.dll --fullscreen {rompath}
+MAME (standalone):
+    executable:  mame
+    launch_args: {romname} -rompath {romdir} -nowindow
+
+RetroArch (con core de MAME):
+    executable:  retroarch
+    launch_args: -L mame2003_plus_libretro --fullscreen {rompath}
+
+RetroArch (con core FBNeo):
+    executable:  retroarch
+    launch_args: -L fbneo_libretro.dll --fullscreen {rompath}
 ```
 
 Si no se define `launch_args` se usa `{rompath}` por defecto.
@@ -922,3 +954,12 @@ puede ser necesario `sudo usermod -a -G input $USER` y cerrar/abrir sesion.
 ### Licencia
 
 Proyecto libre. Usa PySide6 (LGPL), pygame-ce (LGPL) y Python.
+
+---
+
+### Contacto
+
+Sigueme en mis redes:
+
+- **X / Twitter**: [@vitoxmh](https://x.com/vitoxmh)
+- **Instagram**: [juego_terminado](https://www.instagram.com/juego_terminado/)
