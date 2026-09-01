@@ -1,0 +1,35 @@
+{
+    "background": {
+        "use_snap": false,
+        "image": "images/personalizadas/bg-snes-per_1.png"
+    },
+    "video": {
+        "fixed": false,
+        "x": 30,
+        "y": 90,
+        "w": 490,
+        "h": 368,
+        "z": 0
+    },
+    "snap_pos": {
+        "custom": true,
+        "x": 375,
+        "y": 315,
+        "w": 290,
+        "h": 220
+    },
+    "images": [
+        {
+            "path": "images/personalizadas/mueble snes_1_1.png",
+            "x": 65,
+            "y": 280,
+            "scale": 0.6,
+            "z": 2
+        }
+    ],
+    "wheel": {
+        "base_x_percent": 0.62,
+        "line_x_end_percent": 1.0,
+        "indicator_x_percent": 0.565
+    }
+}

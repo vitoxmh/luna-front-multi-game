@@ -1,0 +1,75 @@
+# ROMs y archivos de juego
+roms/**/*.zip
+roms/**/*.7z
+roms/**/*.rar
+roms/**/*.iso
+roms/**/*.bin
+roms/**/*.rom
+roms/**/*.nes
+roms/**/*.smd
+roms/**/*.gen
+roms/**/*.gba
+roms/**/*.gbc
+roms/**/*.gb
+roms/**/*.n64
+roms/**/*.z64
+roms/**/*.v64
+roms/**/*.nds
+roms/**/*.psx
+roms/**/*.iso
+roms/**/*.cue
+roms/**/*.chd
+roms/**/*.pbp
+roms/**/*.cso
+roms/**/*
+romslist/
+# Imágenes tipo snap/capturas
+images/**/*.png
+images/**/*.jpg
+images/**/*.jpeg
+images/**/*.gif
+images/**/*.bmp
+images/**/*.webp
+images/**/*
+# Excepciones: carpetas versionadas
+!images/personalizadas/
+!images/personalizadas/**
+!images/plataforma/
+!images/plataforma/**
+# Bytecode / caché de Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Archivos de caché del frontend
+.cache/
+*.cache
+game_cache.json
+.video_cache/
+
+# NVRAM de emuladores
+nvram/
+
+# Configuración generada en runtime (se regenera con defaults; no versionar)
+config.json
+config.local.json
+controls.json
+ui_config.json
+# Secretos / credenciales
+.env
+*.env
+secrets.*
+
+# Archivos temporales
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~
+
+# Configuración del sistema
+.DS_Store
+Thumbs.db
+desktop.ini

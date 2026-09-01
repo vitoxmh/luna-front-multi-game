@@ -1,0 +1,21 @@
+{
+    "background": {
+        "use_snap": true
+    },
+    "video": {
+        "fixed": false,
+        "x": 30,
+        "y": 90,
+        "w": 490,
+        "h": 368,
+        "z": 0
+    },
+    "snap_pos": {
+        "custom": true,
+        "x": 415,
+        "y": 320,
+        "w": 350,
+        "h": 250
+    },
+    "images": []
+}

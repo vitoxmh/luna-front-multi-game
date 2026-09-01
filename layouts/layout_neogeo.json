@@ -1,0 +1,34 @@
+{
+    "background": {
+        "use_snap": false
+    },
+    "images": [
+        {
+            "path": "images/personalizadas/nueble neo geo.fw_2.png",
+            "x": 350,
+            "y": 50,
+            "scale": 1.0,
+            "z": 1
+        }
+    ],
+    "video": {
+        "fixed": false,
+        "x": 30,
+        "y": 90,
+        "w": 490,
+        "h": 368,
+        "z": 0
+    },
+    "snap_pos": {
+        "custom": true,
+        "x": 415,
+        "y": 320,
+        "w": 350,
+        "h": 250
+    },
+    "wheel": {
+        "base_x_percent": 0.59,
+        "indicator_x_percent": 0.52,
+        "line_x_start_percent": 0.52
+    }
+}

@@ -1,0 +1,31 @@
+{
+    "images": [
+        {
+            "path": "images/personalizadas/cute_1.png",
+            "x": 245,
+            "y": 120,
+            "scale": 0.7,
+            "z": 1
+        }
+    ],
+    "video": {
+        "fixed": false,
+        "x": 30,
+        "y": 90,
+        "w": 490,
+        "h": 368,
+        "z": 0
+    },
+    "snap_pos": {
+        "custom": true,
+        "x": 440,
+        "y": 320,
+        "w": 330,
+        "h": 250
+    },
+    "wheel": {
+        "base_x_percent": 0.61,
+        "indicator_x_percent": 0.54,
+        "line_x_start_percent": 0.52
+    }
+}

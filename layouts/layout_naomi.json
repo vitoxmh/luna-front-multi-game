@@ -1,0 +1,31 @@
+{
+    "images": [
+        {
+            "path": "images/personalizadas/naomi_arcade_2x.png",
+            "x": 308,
+            "y": 140,
+            "scale": 0.28,
+            "z": 1
+        }
+    ],
+    "snap_pos": {
+        "custom": true,
+        "x": 435,
+        "y": 348,
+        "w": 318,
+        "h": 186
+    },
+    "video": {
+        "fixed": false,
+        "x": 30,
+        "y": 90,
+        "w": 490,
+        "h": 368,
+        "z": 0
+    },
+    "wheel": {
+        "base_x_percent": 0.61,
+        "line_x_start_percent": 0.4,
+        "indicator_x_percent": 0.515
+    }
+}

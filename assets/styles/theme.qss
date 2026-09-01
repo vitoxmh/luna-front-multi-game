@@ -1,0 +1,73 @@
+/*
+ * theme.qss - Estilos adicionales del Frontend Arcade.
+ *
+ * Este archivo carga estilos QSS globales. Se puede cargar
+ * desde el código con: app.setStyleSheet(open("theme.qss").read())
+ *
+ * Los colores principales se definen en config.json -> colores
+ * y se aplican dinámicamente en main.py.
+ *
+ * Este archivo es para estilos complementarios.
+ */
+
+/* Scrollbars */
+QScrollBar:vertical {
+    background: #0a0a0f;
+    width: 8px;
+    margin: 0;
+}
+
+QScrollBar::handle:vertical {
+    background: #333333;
+    min-height: 30px;
+    border-radius: 4px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background: #ff6600;
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    background: none;
+}
+
+/* Tooltips */
+QToolTip {
+    background-color: #1a1a2e;
+    color: #ffffff;
+    border: 1px solid #ff6600;
+    padding: 5px;
+    font-size: 12px;
+}
+
+/* Botones genéricos */
+QPushButton {
+    background-color: #1a1a2e;
+    color: #ffffff;
+    border: 1px solid #333333;
+    border-radius: 5px;
+    padding: 8px 16px;
+    font-size: 13px;
+}
+
+QPushButton:hover {
+    background-color: #ff6600;
+    border-color: #ff6600;
+}
+
+QPushButton:pressed {
+    background-color: #cc5500;
+}
+
+/* Labels de estado */
+QLabel#estadoOk {
+    color: #00cc66;
+}
+
+QLabel#estadoError {
+    color: #ff4444;
+}

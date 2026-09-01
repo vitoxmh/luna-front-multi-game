@@ -1,0 +1,87 @@
+{
+    "app_name": "Luna Frontend",
+    "theme": "dark",
+    "fullscreen": true,
+    "resolution": [1920, 1080],
+    "emulators": {
+        "mame": {
+            "name": "MAME (Arcade)",
+            "executable": "retroarch",
+            "launch_args": "-L mame2003_plus_libretro --fullscreen {rompath}",
+            "extensions": [".zip"],
+            "rom_paths": "roms/mame",
+            "wheel_img": "images/plataforma/mame.png",
+            "bg_image": "images/plataforma/bg-arcade.jpg",
+            "images_path": "images/mame/wheel",
+            "videos_path": "images/mame/snap",
+            "marquees_path": "images/mame/marquee",
+            "icon": "arcade"
+        },
+        "nes": {
+            "name": "Nintendo",
+            "executable": "retroarch",
+            "launch_args": "-L fceumm --fullscreen {rompath}",
+            "extensions": [".nes", ".zip"],
+            "rom_paths": "roms/nes",
+            "wheel_img": "images/plataforma/NES_logo.svg",
+            "bg_image": "images/plataforma/bg-nes.jpg",
+            "images_path": "images/nes/wheel",
+            "videos_path": "images/nes/snap",
+            "icon": "nes"
+        },
+        "snes": {
+            "name": "Super Nintendo",
+            "executable": "retroarch",
+            "launch_args": "-L snes9x --fullscreen {rompath}",
+            "extensions": [".smc", ".zip"],
+            "rom_paths": "roms/snes",
+            "wheel_img": "images/plataforma/Super_Nintendo_Entertainment_System_logo.svg.webp",
+            "bg_image": "images/plataforma/bg-snes.jpg",
+            "images_path": "images/snes/wheel",
+            "videos_path": "images/snes/snap",
+            "icon": "snes"
+        },
+        "naomi": {
+            "name": "Sega Naomi",
+            "executable": "retroarch",
+            "launch_args": "-L flycast --fullscreen {rompath}",
+            "extensions": [".bin", ".zip"],
+            "rom_paths": "roms/naomi",
+            "wheel_img": "images/plataforma/Sega_NAOMI_logo.png",
+            "bg_image": "images/plataforma/bg-arcade.jpg",
+            "images_path": "images/naomi/wheel",
+            "videos_path": "images/naomi/snap",
+            "icon": "naomi"
+        },
+        "neogeo": {
+            "name": "NEO GEO",
+            "executable": "retroarch",
+            "launch_args": "-L fbneo_libretro.dll --fullscreen {rompath}",
+            "extensions": [".zip"],
+            "rom_paths": "roms/neogeo",
+            "wheel_img": "images/plataforma/Neogeo-logo.svg",
+            "bg_image": "images/plataforma/bg-neogeo.jpg",
+            "images_path": "images/neogeo/wheel",
+            "videos_path": "images/neogeo/snap",
+            "marquees_path": "images/neogeo/marquee",
+            "icon": "neogeo"
+        }
+    },
+    "colors": {
+        "background": "#0a0a0f",
+        "text": "#ffffff",
+        "selected": "#ff6600",
+        "accent": "#00ccff",
+        "active_category": "#ffcc00",
+        "borders": "#333333"
+    },
+    "igdb": {
+        "client_id": "",
+        "client_secret": "",
+        "enabled": false
+    },
+    "rawg": {
+        "api_key": "",
+        "enabled": true
+    }
+}
