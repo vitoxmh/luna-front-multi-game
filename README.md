@@ -14,7 +14,7 @@ HTML/CSS/JS). Runs on **Windows and Linux**.
 
 ### Features
 
-- **3D rotating wheel** for platforms (MAME, NES, SNES, Neo Geo...) and a second
+- **3D rotating wheel** for platforms (MAME, NES, SNES, Neo Geo, Naomi...) and a second
   wheel for ROMs.
 - Backgrounds with blur/brightness/vignette, animated snap (video or image) per
   game, and info panel.
@@ -30,6 +30,10 @@ HTML/CSS/JS). Runs on **Windows and Linux**.
 - Per-platform layout overrides (`layouts/layout_<system>.json`).
 - Resolution auto-scaling: layout coordinates adapt to any screen size.
 - Hot-reload layout system via `QFileSystemWatcher`.
+- **Internationalization** (English/Spanish) with live language switching.
+- **PyInstaller support**: packaged as a standalone binary with `paths.py`.
+- Custom overlay images with configurable Z-order, position and scale.
+- Multi-source background images with per-image brightness and stretch settings.
 
 ---
 
@@ -92,15 +96,20 @@ frontend-arcade/
 ├── scraper.py              # Game metadata (IGDB -> RAWG -> Wikipedia)
 ├── config.py               # Config load/save/validation + controls
 ├── gamepad_manager.py      # pygame-ce gamepad detection + polling (Qt signals)
+├── i18n.py                 # Internationalization (English/Spanish)
+├── paths.py                # Base paths for dev and PyInstaller packaging
 │
-├── config.json             # Main config: emulators, colors, API keys
-├── ui_config.json          # Visual config: wheel, background, video, snap
-├── controls.json           # Keyboard + gamepad button mappings
+├── config.json             # Main config: emulators, colors, API keys (gitignored)
+├── config.json.example     # Example config to copy as config.json
+├── ui_config.json          # Visual config: wheel, background, video, snap (gitignored)
+├── controls.json           # Keyboard + gamepad button mappings (gitignored)
 │
 ├── layouts/
 │   ├── layout.json         # Global layout: bars, wheel, info, video, background
 │   ├── layout_mame.json    # Per-platform override (MAME)
+│   ├── layout_naomi.json   # Per-platform override (Naomi)
 │   ├── layout_neogeo.json  # Per-platform override (Neo Geo)
+│   ├── layout_nes.json     # Per-platform override (NES)
 │   └── layout_snes.json    # Per-platform override (SNES)
 │
 ├── widgets/                # Custom PySide6 widgets
@@ -108,6 +117,7 @@ frontend-arcade/
 │   ├── bg_widget.py        # Background blur/brightness/vignette
 │   ├── config_dialog.py    # Config panel (Shift key)
 │   ├── controls_dialog.py  # Gamepad/keyboard mapping dialog
+│   ├── focus_nav.py        # D-pad/keyboard navigation for dialogs
 │   ├── layout_editor.py    # Live layout editor (Ctrl+L)
 │   ├── posiciones_admin.py # Position admin (Ctrl+P)
 │   └── splash.py           # Animated splash screen
@@ -117,12 +127,19 @@ frontend-arcade/
 │   ├── <emulator>/wheel/   # Game logos (wheel)
 │   ├── <emulator>/snap/    # Screenshots (.png/.jpg) and videos (.mp4)
 │   ├── <emulator>/marquee/ # Arcade banners
-│   ├── plataforma/         # Platform logos and backgrounds
-│   └── personalizadas/     # User custom images
-├── romslist/               # Scan cache: one JSON per emulator
-├── game_cache.json         # Scraper metadata cache
-└── assets/styles/theme.qss
+│   ├── plataforma/         # Platform logos and backgrounds (versioned)
+│   └── personalizadas/     # User custom images (versioned)
+├── romslist/               # Scan cache: one JSON per emulator (gitignored)
+├── game_cache.json         # Scraper metadata cache (gitignored)
+├── assets/
+│   ├── luna.jpg            # Splash screen image
+│   └── styles/theme.qss    # Qt stylesheet
+└── requirements.txt        # Python dependencies
 ```
+
+> **Note**: `config.json`, `controls.json`, `ui_config.json`, `romslist/`,
+> and `game_cache.json` are gitignored. On first run, defaults are generated
+> automatically. Copy `config.json.example` to `config.json` to get started.
 
 ---
 
@@ -143,7 +160,7 @@ frontend-arcade/
 ### config.json - Full Reference
 
 All configuration lives in `config.json`. Edit manually or from the config
-panel (**Shift** key).
+panel (**Shift** key). A `config.json.example` is provided as a starting point.
 
 #### General Keys
 
@@ -154,37 +171,37 @@ panel (**Shift** key).
 | `fullscreen` | Start in fullscreen (`true`/`false`) |
 | `resolution` | Window resolution `[width, height]` |
 
-#### `emuladores` Section
+#### `emulators` Section
 
 Each entry is an emulator/platform. Example:
 
 ```json
 "mame": {
-    "nombre": "MAME (Arcade)",
-    "ejecutable": "D:/GAMES/RetroArch/retroarch.exe",
+    "name": "MAME (Arcade)",
+    "executable": "retroarch",
     "launch_args": "-L mame2003_plus_libretro --fullscreen {rompath}",
-    "extensiones": [".zip"],
+    "extensions": [".zip"],
     "rom_paths": "roms/mame",
     "wheel_img": "images/plataforma/mame.png",
-    "fondo_img": "images/plataforma/bg-arcade.jpg",
+    "bg_image": "images/plataforma/bg-arcade.jpg",
     "images_path": "images/mame/wheel",
     "videos_path": "images/mame/snap",
     "marquees_path": "images/mame/marquee",
-    "icono": "arcade"
+    "icon": "arcade"
 }
 ```
 
 | Key | Description |
 |---|---|
-| `nombre` | Display name in the platform wheel |
-| `ejecutable` | Absolute path or command for the emulator |
+| `name` | Display name in the platform wheel |
+| `executable` | Absolute path or command for the emulator |
 | `launch_args` | Launch arguments (see placeholders) |
-| `extensiones` | ROM extensions recognized by the scanner |
+| `extensions` | ROM extensions recognized by the scanner |
 | `rom_paths` | ROM folder(s): string or dict (see below) |
 | `wheel_img` | Platform logo in the wheel |
-| `fondo_img` | Default background for the platform |
+| `bg_image` | Default background for the platform |
 | `images_path` / `videos_path` / `marquees_path` | Folders for game wheels/snaps/marquees |
-| `icono` | Emoji icon for the category (`arcade`, `nes`, `snes`, `neogeo`...) |
+| `icon` | Emoji icon for the category (`arcade`, `nes`, `snes`, `neogeo`...) |
 
 #### `launch_args` Placeholders
 
@@ -206,7 +223,7 @@ If `launch_args` is not defined, `{rompath}` is used by default.
 
 #### Executable Search Order
 
-When `ejecutable` is not an existing absolute path:
+When `executable` is not an existing absolute path:
 
 1. System `PATH` variable.
 2. Linux: `/usr/bin`, `/usr/local/bin`, `/snap/bin`, `/opt/<name>/<name>`,
@@ -226,30 +243,30 @@ When `ejecutable` is not an existing absolute path:
 
 ```json
 "retroarch": {
-    "extensiones": [".zip", ".nes"],
+    "extensions": [".zip", ".nes"],
     "rom_paths": {
-        "nes":  { "nombre": "NES", "ruta": "roms/nes",  "core": "fceumm" },
-        "snes": { "nombre": "SNES", "ruta": "roms/snes", "core": "snes9x" }
+        "nes":  { "name": "NES", "path": "roms/nes",  "core": "fceumm" },
+        "snes": { "name": "SNES", "path": "roms/snes", "core": "snes9x" }
     }
 }
 ```
 
-Each subcategory accepts `fondo_img`, `wheel_img`, `images_path`,
+Each subcategory accepts `bg_image`, `wheel_img`, `images_path`,
 `marquees_path`, and `videos_path` (inherited from the emulator if missing).
 The `core` is substituted in `{core}` within `launch_args`.
 
-#### `colores` Section
+#### `colors` Section
 
 Interface color palette:
 
 ```json
-"colores": {
-    "fondo": "#0a0a0f",
-    "texto": "#ffffff",
-    "seleccionado": "#ff6600",
-    "acento": "#00ccff",
-    "categoria_activa": "#ffcc00",
-    "bordes": "#333333"
+"colors": {
+    "background": "#0a0a0f",
+    "text": "#ffffff",
+    "selected": "#ff6600",
+    "accent": "#00ccff",
+    "active_category": "#ffcc00",
+    "borders": "#333333"
 }
 ```
 
@@ -259,8 +276,8 @@ Game metadata is fetched in this order: IGDB -> RAWG -> Wikipedia.
 Results are cached in `game_cache.json`.
 
 ```json
-"igdb": { "client_id": "", "client_secret": "", "habilitado": false },
-"rawg": { "api_key": "...", "habilitado": true }
+"igdb": { "client_id": "", "client_secret": "", "enabled": false },
+"rawg": { "api_key": "...", "enabled": true }
 ```
 
 - **IGDB**: requires Twitch API credentials (`client_id` + `client_secret`).
@@ -304,10 +321,10 @@ git (`.gitignore` exceptions); the rest of `images/` is not uploaded.
 
 Background priority for a platform:
 
-1. Active global image from the Shift panel (`ui_config.json` -> `fondo.imagenes`)
-2. Platform override: `layout_<system>.json` -> `background.imagen`
-3. `config.json` -> `emuladores[].fondo_img` (or the subcategory's)
-4. Global layout: `layouts/layout.json` -> `background.imagen`
+1. Active global image from the Shift panel (`ui_config.json` -> `background.images`)
+2. Platform override: `layout_<system>.json` -> `background.image`
+3. `config.json` -> `emulators[].bg_image` (or the subcategory's)
+4. Global layout: `layouts/layout.json` -> `background.image`
 5. Automatic search in `images/<...>/fondo/`
 6. Fallback: the platform's wheel image
 
@@ -331,6 +348,12 @@ All layout coordinates are stored relative to a `base_resolution` and
 dynamically rescaled to fit any screen size. Changes are hot-reloaded via
 `QFileSystemWatcher` without restarting the app.
 
+Per-platform layout files can also define:
+- `images`: custom overlay images with `x`, `y`, `scale`, `z` (Z-order)
+- `video`: video player position (`x`, `y`, `w`, `h`, `fixed`)
+- `snap_pos`: snap position, supports `custom: true` for free placement
+- `wheel`: wheel position overrides (`base_x_percent`, `indicator_x_percent`, etc.)
+
 ---
 
 ### Gamepad Support
@@ -345,6 +368,16 @@ Windows.
 - Configurable deadzone for analog sticks.
 - All mappings customizable via the **Controls** tab in the Shift config panel
   or by editing `controls.json` directly.
+
+---
+
+### Internationalization
+
+The app supports **English** and **Spanish** with live language switching.
+- The active language is stored in `ui_config.json` (`"language": "es"|"en"`).
+- Change it from the config panel (**Shift** -> LANGUAGE section).
+- All UI strings are translated via `i18n.py` using a catalog system.
+- Changing the language retraduces the interface instantly without restart.
 
 ---
 
@@ -369,12 +402,27 @@ Windows.
 
 ### Adding a New Emulator
 
-1. Edit `config.json` and add an entry in `emuladores`.
-2. Define `ejecutable`, `launch_args`, `extensiones`, and `rom_paths`.
+1. Edit `config.json` and add an entry in `emulators`.
+2. Define `executable`, `launch_args`, `extensions`, and `rom_paths`.
 3. Create the ROM folder and copy your games there.
 4. (Optional) Add wheels in `images/<emu>/wheel/` and snaps in
    `images/<emu>/snap/` with the same name as the zip.
 5. Delete the corresponding JSON in `romslist/` (or all) and restart.
+
+---
+
+### Packaging with PyInstaller
+
+The app supports PyInstaller packaging via `paths.py`:
+- In development, `BASE_PATH` points to the project root.
+- When frozen (`sys.frozen`), read-only bundle data comes from `sys._MEIPASS`
+  while editable/config files live next to the executable.
+- This allows `config.json`, `romslist/`, `images/`, etc. to persist across
+  runs when packaged as a standalone `.exe`.
+
+```bash
+pyinstaller --onefile --add-data "assets;assets" --add-data "layouts;layouts" main.py
+```
 
 ---
 
@@ -422,7 +470,7 @@ HTML/CSS/JS). Funciona en **Windows y Linux**.
 
 ### Caracteristicas
 
-- **Rueda 3D giratoria** de plataformas (MAME, NES, SNES, Neo Geo...) y segunda
+- **Rueda 3D giratoria** de plataformas (MAME, NES, SNES, Neo Geo, Naomi...) y segunda
   rueda con las ROMs.
 - Fondos con blur/brillo/vignette, snap animado (video o imagen) por juego y
   panel de informacion.
@@ -440,6 +488,10 @@ HTML/CSS/JS). Funciona en **Windows y Linux**.
 - Auto-escalamiento de resolucion: las coordenadas del layout se adaptan a
   cualquier tamano de pantalla.
 - Sistema de layout con hot-reload via `QFileSystemWatcher`.
+- **Internacionalizacion** (ingles/espanol) con cambio de idioma en vivo.
+- **Soporte PyInstaller**: empaquetable como binario standalone con `paths.py`.
+- Imagenes overlay personalizables con Z-order, posicion y escala configurables.
+- Imagenes de fondo multi-fuente con brillo y ajuste por imagen.
 
 ---
 
@@ -498,19 +550,24 @@ frontend-arcade/
 ├── main.py               # Punto de entrada: ventana, rueda, fondos, atajos
 ├── backend.py            # Servicios: escaneo, lanzamiento, scraping, config
 ├── launcher.py           # Construccion del comando y ejecucion del emulador
-├── scanner.py            # Escaneo de carpetas de ROMs e imagenes
+├── scanner.py            # Escaneo de carpetas de ROMs y cache JSON
 ├── scraper.py            # Info de juegos desde IGDB / RAWG / Wikipedia
 ├── config.py             # Carga/guardado/validacion de config.json + controles
 ├── gamepad_manager.py    # Deteccion y polling de gamepad via pygame-ce
+├── i18n.py               # Internacionalizacion (ingles/espanol)
+├── paths.py              # Rutas base para desarrollo y empaquetado PyInstaller
 │
-├── config.json           # Config principal (emuladores, colores, APIs)
-├── ui_config.json        # Config visual (rueda, fondo, snap)
-├── controls.json         # Mapeos de teclado y botones de gamepad
+├── config.json           # Config principal (gitignored, se genera en el primer arranque)
+├── config.json.example   # Ejemplo de config para copiar como config.json
+├── ui_config.json        # Config visual (rueda, fondo, snap) (gitignored)
+├── controls.json         # Mapeos de teclado y botones de gamepad (gitignored)
 │
 ├── layouts/
 │   ├── layout.json       # Layout global (barras, paneles, video)
 │   ├── layout_mame.json  # Override de layout para MAME
+│   ├── layout_naomi.json # Override de layout para Naomi
 │   ├── layout_neogeo.json# Override de layout para Neo Geo
+│   ├── layout_nes.json   # Override de layout para NES
 │   └── layout_snes.json  # Override de layout para SNES
 │
 ├── widgets/              # Widgets PySide6 propios
@@ -518,6 +575,7 @@ frontend-arcade/
 │   ├── bg_widget.py          # Fondo con blur/brillo/vignette
 │   ├── config_dialog.py      # Panel de configuracion (Shift)
 │   ├── controls_dialog.py    # Dialogo de mapeo gamepad/teclado
+│   ├── focus_nav.py          # Navegacion D-pad/teclado en dialogos
 │   ├── layout_editor.py      # Editor de layout en vivo (Ctrl+L)
 │   ├── posiciones_admin.py   # Posiciones rueda/info/video (Ctrl+P)
 │   └── splash.py             # Splash screen animado
@@ -527,12 +585,20 @@ frontend-arcade/
 │   ├── <emulador>/wheel/     # Logos de juegos (rueda)
 │   ├── <emulador>/snap/      # Capturas (.png/.jpg) y videos (.mp4)
 │   ├── <emulador>/marquee/   # Banners tipo arcade
-│   ├── plataforma/           # Logos y fondos de cada plataforma
-│   └── personalizadas/       # Imagenes propias del usuario
-├── romslist/             # Cache del escaneo: un JSON por emulador
-├── game_cache.json       # Cache del scraper
-└── assets/styles/theme.qss
+│   ├── plataforma/           # Logos y fondos de cada plataforma (versionado)
+│   └── personalizadas/       # Imagenes propias del usuario (versionado)
+├── romslist/             # Cache del escaneo: un JSON por emulador (gitignored)
+├── game_cache.json       # Cache del scraper (gitignored)
+├── assets/
+│   ├── luna.jpg          # Imagen del splash screen
+│   └── styles/theme.qss  # Stylesheet Qt
+└── requirements.txt      # Dependencias Python
 ```
+
+> **Nota**: `config.json`, `controls.json`, `ui_config.json`, `romslist/` y
+> `game_cache.json` estan en `.gitignore`. En el primer arranque se generan
+> automaticamente con valores por defecto. Copia `config.json.example` a
+> `config.json` para empezar.
 
 ---
 
@@ -555,7 +621,8 @@ frontend-arcade/
 ### config.json - Referencia completa
 
 Toda la configuracion vive en `config.json`. Se puede editar a mano o desde el
-panel de configuracion (tecla **Shift**).
+panel de configuracion (tecla **Shift**). Se incluye `config.json.example` como
+punto de partida.
 
 #### Claves generales
 
@@ -566,37 +633,37 @@ panel de configuracion (tecla **Shift**).
 | `fullscreen` | Arrancar en pantalla completa (`true`/`false`) |
 | `resolution` | Resolucion de ventana `[ancho, alto]` |
 
-#### Seccion `emuladores`
+#### Seccion `emulators`
 
 Cada entrada es un emulador/plataforma. Ejemplo:
 
 ```json
 "mame": {
-    "nombre": "MAME (Arcade)",
-    "ejecutable": "D:/GAMES/RetroArch/retroarch.exe",
+    "name": "MAME (Arcade)",
+    "executable": "retroarch",
     "launch_args": "-L mame2003_plus_libretro --fullscreen {rompath}",
-    "extensiones": [".zip"],
+    "extensions": [".zip"],
     "rom_paths": "roms/mame",
     "wheel_img": "images/plataforma/mame.png",
-    "fondo_img": "images/plataforma/bg-arcade.jpg",
+    "bg_image": "images/plataforma/bg-arcade.jpg",
     "images_path": "images/mame/wheel",
     "videos_path": "images/mame/snap",
     "marquees_path": "images/mame/marquee",
-    "icono": "arcade"
+    "icon": "arcade"
 }
 ```
 
 | Clave | Descripcion |
 |---|---|
-| `nombre` | Nombre visible en la rueda de plataformas |
-| `ejecutable` | Ruta absoluta o comando del emulador |
+| `name` | Nombre visible en la rueda de plataformas |
+| `executable` | Ruta absoluta o comando del emulador |
 | `launch_args` | Argumentos de lanzamiento (ver placeholders) |
-| `extensiones` | Extensiones de ROM que reconoce el escaneo |
+| `extensions` | Extensiones de ROM que reconoce el escaneo |
 | `rom_paths` | Carpeta(s) de ROMs: string o dict (ver abajo) |
 | `wheel_img` | Logo de la plataforma en la rueda |
-| `fondo_img` | Fondo por defecto de la plataforma |
+| `bg_image` | Fondo por defecto de la plataforma |
 | `images_path` / `videos_path` / `marquees_path` | Carpetas de wheels/snaps/marquees |
-| `icono` | Icono emoji de la categoria (`arcade`, `nes`, `snes`, `neogeo`...) |
+| `icon` | Icono emoji de la categoria (`arcade`, `nes`, `snes`, `neogeo`...) |
 
 #### Placeholders de `launch_args`
 
@@ -618,7 +685,7 @@ Si no se define `launch_args` se usa `{rompath}` por defecto.
 
 #### Busqueda del ejecutable
 
-Orden de busqueda cuando `ejecutable` no es una ruta absoluta existente:
+Orden de busqueda cuando `executable` no es una ruta absoluta existente:
 
 1. Variable `PATH` del sistema.
 2. Linux: `/usr/bin`, `/usr/local/bin`, `/snap/bin`, `/opt/<nombre>/<nombre>`,
@@ -638,30 +705,30 @@ Orden de busqueda cuando `ejecutable` no es una ruta absoluta existente:
 
 ```json
 "retroarch": {
-    "extensiones": [".zip", ".nes"],
+    "extensions": [".zip", ".nes"],
     "rom_paths": {
-        "nes":  { "nombre": "NES", "ruta": "roms/nes",  "core": "fceumm" },
-        "snes": { "nombre": "SNES", "ruta": "roms/snes", "core": "snes9x" }
+        "nes":  { "name": "NES", "path": "roms/nes",  "core": "fceumm" },
+        "snes": { "name": "SNES", "path": "roms/snes", "core": "snes9x" }
     }
 }
 ```
 
-Cada subcategoria acepta ademas `fondo_img`, `wheel_img`, `images_path`,
+Cada subcategoria acepta ademas `bg_image`, `wheel_img`, `images_path`,
 `marquees_path` y `videos_path` propios (si faltan, heredan los del emulador).
 El `core` se sustituye en `{core}` dentro de `launch_args`.
 
-#### Seccion `colores`
+#### Seccion `colors`
 
 Paleta de la interfaz:
 
 ```json
-"colores": {
-    "fondo": "#0a0a0f",
-    "texto": "#ffffff",
-    "seleccionado": "#ff6600",
-    "acento": "#00ccff",
-    "categoria_activa": "#ffcc00",
-    "bordes": "#333333"
+"colors": {
+    "background": "#0a0a0f",
+    "text": "#ffffff",
+    "selected": "#ff6600",
+    "accent": "#00ccff",
+    "active_category": "#ffcc00",
+    "borders": "#333333"
 }
 ```
 
@@ -671,8 +738,8 @@ La info de los juegos se obtiene en este orden: IGDB -> RAWG -> Wikipedia.
 El resultado queda cacheado en `game_cache.json`.
 
 ```json
-"igdb": { "client_id": "", "client_secret": "", "habilitado": false },
-"rawg": { "api_key": "...", "habilitado": true }
+"igdb": { "client_id": "", "client_secret": "", "enabled": false },
+"rawg": { "api_key": "...", "enabled": true }
 ```
 
 - **IGDB**: requiere credenciales de la API de Twitch (`client_id` +
@@ -717,10 +784,10 @@ en git (excepciones del `.gitignore`); el resto de `images/` no se sube al repo.
 
 Prioridad para el fondo de una plataforma:
 
-1. Imagen global activa del panel Shift (`ui_config.json` -> `fondo.imagenes`)
-2. Override de la plataforma: `layout_<sistema>.json` -> `background.imagen`
-3. `config.json` -> `emuladores[].fondo_img` (o el de la subcategoria)
-4. Layout global: `layouts/layout.json` -> `background.imagen`
+1. Imagen global activa del panel Shift (`ui_config.json` -> `background.images`)
+2. Override de la plataforma: `layout_<sistema>.json` -> `background.image`
+3. `config.json` -> `emulators[].bg_image` (o el de la subcategoria)
+4. Layout global: `layouts/layout.json` -> `background.image`
 5. Busqueda automatica en `images/<...>/fondo/`
 6. Fallback: la imagen wheel de la plataforma
 
@@ -745,6 +812,12 @@ Todas las coordenadas del layout se almacenan relativamente a una
 pantalla. Los cambios se recargan automaticamente via `QFileSystemWatcher`
 sin reiniciar la aplicacion.
 
+Archivos de layout por plataforma tambien pueden definir:
+- `images`: imagenes overlay personalizadas con `x`, `y`, `scale`, `z` (Z-order)
+- `video`: posicion del reproductor de video (`x`, `y`, `w`, `h`, `fixed`)
+- `snap_pos`: posicion del snap, soporta `custom: true` para colocacion libre
+- `wheel`: overrides de posicion de la rueda (`base_x_percent`, `indicator_x_percent`, etc.)
+
 ---
 
 ### Soporte de gamepad
@@ -759,6 +832,16 @@ Windows.
 - Deadzone configurable para sticks analogicos.
 - Todos los mapeos personalizables desde la pestana **Controles** en el panel
   Shift o editando `controls.json` directamente.
+
+---
+
+### Internacionalizacion
+
+La app soporta **ingles** y **espanol** con cambio de idioma en vivo.
+- El idioma activo se guarda en `ui_config.json` (`"language": "es"|"en"`).
+- Cambialo desde el panel de configuracion (pestana **Shift** -> seccion IDIOMA).
+- Todas las cadenas de la UI se traducen via `i18n.py` usando un sistema de catalogo.
+- Cambiar el idioma retraduce la interfaz al instante sin reiniciar.
 
 ---
 
@@ -783,12 +866,27 @@ Windows.
 
 ### Agregar un nuevo emulador
 
-1. Edita `config.json` y anade una entrada en `emuladores`.
-2. Define `ejecutable`, `launch_args`, `extensiones` y `rom_paths`.
+1. Edita `config.json` y anade una entrada en `emulators`.
+2. Define `executable`, `launch_args`, `extensions` y `rom_paths`.
 3. Crea la carpeta de ROMs y copia ahi tus juegos.
 4. (Opcional) Anade wheels en `images/<emu>/wheel/` y snaps en
    `images/<emu>/snap/` con el mismo nombre del zip.
 5. Borra el JSON correspondiente de `romslist/` (o todos) y reinicia.
+
+---
+
+### Empaquetado con PyInstaller
+
+La app soporta empaquetado con PyInstaller via `paths.py`:
+- En desarrollo, `BASE_PATH` apunta a la raiz del proyecto.
+- Cuando esta empaquetado (`sys.frozen`), los datos de solo lectura vienen de
+  `sys._MEIPASS` mientras que los archivos editables/config viven junto al ejecutable.
+- Esto permite que `config.json`, `romslist/`, `images/`, etc. persistan entre
+  ejecuciones cuando se empaquetan como un `.exe` standalone.
+
+```bash
+pyinstaller --onefile --add-data "assets;assets" --add-data "layouts;layouts" main.py
+```
 
 ---
 
@@ -824,5 +922,3 @@ puede ser necesario `sudo usermod -a -G input $USER` y cerrar/abrir sesion.
 ### Licencia
 
 Proyecto libre. Usa PySide6 (LGPL), pygame-ce (LGPL) y Python.
-#   l u n a - f r o n t - m u l t i - g a m e  
- 
