@@ -1,0 +1,32 @@
+{
+    "background": {
+        "use_snap": false
+    },
+    "video": {
+        "fixed": false,
+        "x": 30,
+        "y": 90,
+        "w": 490,
+        "h": 348,
+        "z": 0
+    },
+    "snap_pos": {
+        "custom": true,
+        "x": 620,
+        "y": 240,
+        "w": 370,
+        "h": 290
+    },
+    "images": [
+        {
+            "path": "images/personalizadas/tv_1.png",
+            "x": 110,
+            "y": 245,
+            "scale": 0.7,
+            "z": 9
+        }
+    ],
+    "wheel": {
+        "base_x_percent": 0.66
+    }
+}

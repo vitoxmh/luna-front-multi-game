@@ -3,8 +3,9 @@ focus_nav.py - Navegacion por teclado/gamepad para dialogs.
 
 Filtro global instalado en QApplication. Cuando un dialog registrado esta
 visible, las flechas mueven el foco entre controles (navegacion tipo grilla),
-Enter/Return activa el control enfocado (boton/combo), Izquierda/Derecha
-ajustan el valor de spinboxes/combos y ESC cierra el dialog.
+Enter/Return activa el control enfocado (boton/combo). Sobre un campo de
+valor (spinbox/combo), Arriba/Abajo e Izquierda/Derecha aumentan o bajan su
+valor; ESC cierra el dialog.
 
 Para permitir que un dialog capture teclas por si mismo (p. ej. el mapeo de
 controles), se puede definir el atributo o propiedad ``dpad_nav_skip`` (bool
@@ -153,15 +154,18 @@ class DpadNav(QObject):
         if isinstance(fw, QTabBar):
             if action in ("left", "right"):
                 return
-        if isinstance(fw, QAbstractSpinBox) and action in ("left", "right"):
-            if action == "left":
-                fw.stepDown()
-            else:
+        if isinstance(fw, QAbstractSpinBox):
+            if action in ("up", "right"):
                 fw.stepUp()
+            elif action in ("down", "left"):
+                fw.stepDown()
             return
-        if isinstance(fw, QComboBox) and action in ("left", "right"):
-            idx = fw.currentIndex()
-            nxt = idx - 1 if action == "left" else idx + 1
+        if isinstance(fw, QComboBox) and action in ("up", "down", "left", "right"):
+            nxt = fw.currentIndex()
+            if action in ("up", "right"):
+                nxt += 1
+            else:
+                nxt -= 1
             if 0 <= nxt < fw.count():
                 fw.setCurrentIndex(nxt)
             return

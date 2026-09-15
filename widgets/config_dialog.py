@@ -18,6 +18,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QKeyEvent
 
 from i18n import tr, language_changed, set_language
+from widgets.platform_editor import PlatformEditor
 
 
 DEFAULT_CONFIG = {
@@ -27,9 +28,9 @@ DEFAULT_CONFIG = {
               "central_scale": 1.4, "min_scale": 0.3, "item_width": 300, "item_height": 70},
     "background": {"blur": 12, "brightness": 0.25, "scale": 1.15, "use_snap": True,
               "images": [], "active_image": -1},
-    "snap": {"max_height": 180},
+    "snap": {"max_height": 180, "scale": 100},
     "info_panel": {"width": 320},
-    "video": {"x": 30, "y": 90, "w": 490, "h": 368, "fixed": False},
+    "video": {"x": 30, "y": 90, "w": 490, "h": 368, "fixed": False, "scale": 100},
     "platform_backgrounds": {}
 }
 
@@ -71,6 +72,7 @@ class ConfigDialog(QDialog):
     config_closed = Signal()       # El dialogo se cerro (ESC o X)
     quit_signal = Signal()
     controls_requested = Signal()  # El usuario pidio configurar los botones
+    platforms_requested = Signal()  # El usuario pidio gestionar plataformas
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -143,6 +145,25 @@ class ConfigDialog(QDialog):
         hint.setStyleSheet("color: #777; font-size: 11px;")
         self._register_text(hint, "Edita cualquier valor: se aplica en vivo. 'Guardar' lo persiste.")
         grid.addWidget(hint)
+
+        # === Idioma ===
+        grid.addWidget(self._section_label("IDIOMA"))
+        lang_frame = self._make_frame()
+        lang_layout = QHBoxLayout(lang_frame)
+        lbl_lang = QLabel("Idioma")
+        lbl_lang.setFixedWidth(105)
+        lbl_lang.setStyleSheet("color: #ccc; font-size: 12px;")
+        self._register_text(lbl_lang, "Idioma")
+        self._cmb_language = QComboBox()
+        self._cmb_language.addItems(["Espanol", "English"])
+        self._cmb_language.setStyleSheet(
+            "QComboBox { color: #fff; background: #1a1a2e; padding: 4px; "
+            "border-radius: 4px; font-size: 12px; }"
+        )
+        self._cmb_language.currentIndexChanged.connect(self._language_changed)
+        lang_layout.addWidget(lbl_lang)
+        lang_layout.addWidget(self._cmb_language, 1)
+        grid.addWidget(lang_frame)
 
         # === Colores ===
         grid.addWidget(self._section_label("COLORES"))
@@ -282,10 +303,13 @@ class ConfigDialog(QDialog):
         # === Snap ===
         grid.addWidget(self._section_label("SNAP"))
         snap_frame = self._make_frame()
-        snap_layout = QVBoxLayout(snap_frame)
+        snap_layout = QGridLayout(snap_frame)
         w, spin = self._make_spin("Alto max", 80, 600, self._config["snap"]["max_height"], 10, 0)
         self._spins["snap.max_height"] = spin
-        snap_layout.addWidget(w)
+        snap_layout.addWidget(w, 0, 0)
+        w, spin = self._make_spin("Escala", 25, 300, self._config["snap"]["scale"], 5, 0)
+        self._spins["snap.scale"] = spin
+        snap_layout.addWidget(w, 0, 1)
         grid.addWidget(snap_frame)
 
         # === Video ===
@@ -306,11 +330,15 @@ class ConfigDialog(QDialog):
             self._spins[f"video.{key}"] = spin
             video_layout.addWidget(w, i // 2, i % 2)
 
+        w, spin = self._make_spin("Escala", 25, 300, self._config["video"]["scale"], 5, 0)
+        self._spins["video.scale"] = spin
+        video_layout.addWidget(w, 2, 0, 1, 2)
+
         self._chk_fixed = QCheckBox("Usar posicion fija (si no, se alinea al snap)")
         self._chk_fixed.setStyleSheet("color: #ccc; font-size: 12px;")
         self._chk_fixed.setChecked(self._config["video"]["fixed"])
         self._register_text(self._chk_fixed, "Usar posicion fija (si no, se alinea al snap)")
-        video_layout.addWidget(self._chk_fixed, 2, 0, 1, 2)
+        video_layout.addWidget(self._chk_fixed, 3, 0, 1, 2)
         grid.addWidget(video_frame)
 
         # === Resolucion ===
@@ -337,25 +365,6 @@ class ConfigDialog(QDialog):
         self._chk_fullscreen.setStyleSheet("color: #ccc; font-size: 12px;")
         self._register_text(self._chk_fullscreen, "Pantalla completa")
         res_layout.addWidget(self._chk_fullscreen)
-
-        # === Idioma ===
-        grid.addWidget(self._section_label("IDIOMA"))
-        lang_frame = self._make_frame()
-        lang_layout = QHBoxLayout(lang_frame)
-        lbl_lang = QLabel("Idioma")
-        lbl_lang.setFixedWidth(105)
-        lbl_lang.setStyleSheet("color: #ccc; font-size: 12px;")
-        self._register_text(lbl_lang, "Idioma")
-        self._cmb_language = QComboBox()
-        self._cmb_language.addItems(["Espanol", "English"])
-        self._cmb_language.setStyleSheet(
-            "QComboBox { color: #fff; background: #1a1a2e; padding: 4px; "
-            "border-radius: 4px; font-size: 12px; }"
-        )
-        self._cmb_language.currentIndexChanged.connect(self._language_changed)
-        lang_layout.addWidget(lbl_lang)
-        lang_layout.addWidget(self._cmb_language, 1)
-        grid.addWidget(lang_frame)
 
         # === Botones (configuracion) ===
         grid.addWidget(self._section_label("BOTONES"))
@@ -384,6 +393,34 @@ class ConfigDialog(QDialog):
         btn_row_ctrl.addStretch()
         ctrl_layout.addLayout(btn_row_ctrl)
         grid.addWidget(controls_frame)
+
+        # === Plataformas ===
+        grid.addWidget(self._section_label("PLATAFORMAS"))
+        platforms_frame = self._make_frame()
+        plat_layout = QVBoxLayout(platforms_frame)
+
+        plat_hint = QLabel("Agrega, edita o elimina plataformas/emuladores desde la interfaz.")
+        plat_hint.setStyleSheet("color: #777; font-size: 11px;")
+        plat_hint.setWordWrap(True)
+        self._register_text(plat_hint, "Agrega, edita o elimina plataformas/emuladores desde la interfaz.")
+        plat_layout.addWidget(plat_hint)
+
+        btn_row_plat = QHBoxLayout()
+        btn_platforms = QPushButton("Gestionar plataformas...")
+        btn_platforms.setStyleSheet(
+            "QPushButton { background: #1a1a2e; color: #fff; padding: 10px 24px; "
+            "border: 1px solid #ff6600; border-radius: 6px; font-size: 13px; "
+            "font-weight: bold; }"
+            "QPushButton:hover { background: #2a1a0e; }"
+        )
+        btn_platforms.setToolTip("Abre el editor de plataformas para agregar, editar o eliminar emuladores")
+        self._register_text(btn_platforms, "Gestionar plataformas...")
+        self._register_tooltip(btn_platforms, "Abre el editor de plataformas para agregar, editar o eliminar emuladores")
+        btn_platforms.clicked.connect(self.platforms_requested.emit)
+        btn_row_plat.addWidget(btn_platforms)
+        btn_row_plat.addStretch()
+        plat_layout.addLayout(btn_row_plat)
+        grid.addWidget(platforms_frame)
 
         # === Botones (acciones) ===
         btn_row = QHBoxLayout()
@@ -662,6 +699,8 @@ class ConfigDialog(QDialog):
         self._config = json.loads(json.dumps(config))
         # Compatibilidad con ui_config.json previos a la opcion snap-fondo
         self._config.setdefault("background", {}).setdefault("use_snap", True)
+        self._config.setdefault("snap", {}).setdefault("scale", 100)
+        self._config.setdefault("video", {}).setdefault("scale", 100)
         self._config.setdefault("platform_backgrounds", {})
         # Si hay plataforma activa y tiene fondo propio, usarlo
         self._original_global_bg = None

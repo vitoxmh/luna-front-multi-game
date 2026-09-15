@@ -1,0 +1,78 @@
+
+===== 2026-09-10 15:06:04 =====
+Traceback (most recent call last):
+  File "D:\app\front\frontend-arcade\widgets\platform_editor.py", line 278, in <lambda>
+    lambda t=txt, flt=file_filter: self._browse_file(t, flt)
+                                   ~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "D:\app\front\frontend-arcade\widgets\platform_editor.py", line 297, in _browse_file
+    txt_widget.setText(path)
+    ^^^^^^^^^^^^^^^^^^
+AttributeError: 'bool' object has no attribute 'setText'
+
+===== 2026-09-10 15:16:03 =====
+Traceback (most recent call last):
+  File "D:\app\front\frontend-arcade\widgets\platform_editor.py", line 278, in <lambda>
+    lambda t=txt, flt=file_filter: self._browse_file(t, flt)
+                                   ~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "D:\app\front\frontend-arcade\widgets\platform_editor.py", line 297, in _browse_file
+    txt_widget.setText(path)
+    ^^^^^^^^^^^^^^^^^^
+AttributeError: 'bool' object has no attribute 'setText'
+
+===== 2026-09-10 15:16:09 =====
+Traceback (most recent call last):
+  File "D:\app\front\frontend-arcade\widgets\platform_editor.py", line 278, in <lambda>
+    lambda t=txt, flt=file_filter: self._browse_file(t, flt)
+                                   ~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "D:\app\front\frontend-arcade\widgets\platform_editor.py", line 297, in _browse_file
+    txt_widget.setText(path)
+    ^^^^^^^^^^^^^^^^^^
+AttributeError: 'bool' object has no attribute 'setText'
+
+===== 2026-09-10 15:16:13 =====
+Traceback (most recent call last):
+  File "D:\app\front\frontend-arcade\widgets\platform_editor.py", line 278, in <lambda>
+    lambda t=txt, flt=file_filter: self._browse_file(t, flt)
+                                   ~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "D:\app\front\frontend-arcade\widgets\platform_editor.py", line 297, in _browse_file
+    txt_widget.setText(path)
+    ^^^^^^^^^^^^^^^^^^
+AttributeError: 'bool' object has no attribute 'setText'
+
+===== 2026-09-10 15:16:16 =====
+Traceback (most recent call last):
+  File "D:\app\front\frontend-arcade\widgets\platform_editor.py", line 278, in <lambda>
+    lambda t=txt, flt=file_filter: self._browse_file(t, flt)
+                                   ~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "D:\app\front\frontend-arcade\widgets\platform_editor.py", line 297, in _browse_file
+    txt_widget.setText(path)
+    ^^^^^^^^^^^^^^^^^^
+AttributeError: 'bool' object has no attribute 'setText'
+
+===== 2026-09-10 16:35:54 =====
+Traceback (most recent call last):
+  File "D:\app\front\frontend-arcade\main.py", line 103, in run
+    self.signals.info_ready.emit(self.file_path, data)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: Signal source has been deleted
+
+===== 2026-09-10 16:35:54 =====
+Traceback (most recent call last):
+  File "D:\app\front\frontend-arcade\main.py", line 103, in run
+    self.signals.info_ready.emit(self.file_path, data)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: Signal source has been deleted
+
+===== 2026-09-10 17:26:44 =====
+Traceback (most recent call last):
+  File "D:\app\front\frontend-arcade\main.py", line 103, in run
+    self.signals.info_ready.emit(self.file_path, data)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: Signal source has been deleted
+
+===== 2026-09-10 17:26:51 =====
+Traceback (most recent call last):
+  File "D:\app\front\frontend-arcade\main.py", line 103, in run
+    self.signals.info_ready.emit(self.file_path, data)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: Signal source has been deleted

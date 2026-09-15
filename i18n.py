@@ -45,10 +45,10 @@ _CATALOG = {
     "SIN SNAP": "NO SNAP",
     "Emulador: {nombre}": "Emulator: {nombre}",
     "Shift Config": "Shift Config",
-    "{nav} Navegar | {sel} Seleccionar | {esc} Salir | Shift Controles | {cfg} Config":
-        "{nav} Navigate | {sel} Select | {esc} Quit | Shift Controls | {cfg} Config",
-    "{nav} Navegar | {sel} Jugar | {esc} Volver | Shift Controles | Escribir para buscar":
-        "{nav} Navigate | {sel} Play | {esc} Back | Shift Controls | Type to search",
+    "{nav} Navegar | {sel} Seleccionar | {esc} Salir | {cfg} Config":
+        "{nav} Navigate | {sel} Select | {esc} Quit | {cfg} Config",
+    "{nav} Navegar | {sel} Jugar | {esc} Volver | {cfg} Config | Escribir para buscar":
+        "{nav} Navigate | {sel} Play | {esc} Back | {cfg} Config | Type to search",
     "Tamanio: {s} | Formato: .{e}": "Size: {s} | Format: .{e}",
     "Jugadores: {n}": "Players: {n}",
     "{n} ROMs": "{n} ROMs",
@@ -132,6 +132,49 @@ _CATALOG = {
     "Configura que botones/teclas navegan por los juegos, seleccionan y vuelven.":
         "Configure which buttons/keys browse the games, select and go back.",
     "Abre el mapeo de botones del teclado y del gamepad": "Opens the keyboard and gamepad button mapping",
+
+    # --- PlatformEditor ---
+    "Editor de Plataformas": "Platform Editor",
+    "PLATAFORMAS EXISTENTES": "EXISTING PLATFORMS",
+    "FORMULARIO": "FORM",
+    "Agrega, edita o elimina plataformas. Los cambios se aplican al guardar.":
+        "Add, edit or delete platforms. Changes are applied on save.",
+    "Agrega, edita o elimina plataformas/emuladores desde la interfaz.":
+        "Add, edit or delete platforms/emulators from the interface.",
+    "Gestionar plataformas...": "Manage platforms...",
+    "Abre el editor de plataformas para agregar, editar o eliminar emuladores":
+        "Opens the platform editor to add, edit or delete emulators",
+    "+ Agregar": "+ Add",
+    "Editar": "Edit",
+    "Eliminar": "Delete",
+    "Cancelar": "Cancel",
+    "Nombre": "Name",
+    "Ejecutable": "Executable",
+    "Args de lanzamiento": "Launch args",
+    "Extensiones": "Extensions",
+    "Carpeta ROMs": "ROMs folder",
+    "Imagen wheel": "Wheel image",
+    "Imagen de fondo": "Background image",
+    "Icono": "Icon",
+    "Seleccionar archivo": "Select file",
+    "Seleccionar carpeta": "Select folder",
+    "Ejecutables (*.exe);;Archivos (*.*)": "Executables (*.exe);;Files (*.*)",
+    "Eliminar plataforma": "Delete platform",
+    "Plataforma duplicada": "Duplicate platform",
+    "Ya existe una plataforma con el id '{id}'. Cambia el nombre para generar otro id.":
+        "A platform with id '{id}' already exists. Change the name to generate another id.",
+    "Estas seguro de que quieres eliminar '{name}'?":
+        "Are you sure you want to delete '{name}'?",
+    "Arcade": "Arcade",
+    "NES": "NES",
+    "SNES": "SNES",
+    "Genesis": "Genesis",
+    "PlayStation": "PlayStation",
+    "Nintendo": "Nintendo",
+    "Multi": "Multi",
+    "Naomi": "Naomi",
+    "NeoGeo": "NeoGeo",
+    "Otro": "Other",
 
     # --- ControlsDialog ---
     "Mapeo de Controles": "Controls Mapping",

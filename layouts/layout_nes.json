@@ -1,6 +1,7 @@
 {
     "background": {
-        "use_snap": true
+        "use_snap": true,
+        "image": "images/personalizadas/Gemini_Generated_Image_giicoqgiicoqgiic.jpg"
     },
     "video": {
         "fixed": false,
@@ -13,9 +14,17 @@
     "snap_pos": {
         "custom": true,
         "x": 415,
-        "y": 320,
+        "y": 295,
         "w": 350,
-        "h": 250
+        "h": 230
     },
-    "images": []
+    "images": [
+        {
+            "path": "images/personalizadas/NES-BG_1.png",
+            "x": 125,
+            "y": 265,
+            "scale": 0.6,
+            "z": 1
+        }
+    ]
 }

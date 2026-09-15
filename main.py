@@ -326,13 +326,13 @@ class BottomBar(QWidget):
         cfg = "/".join(kb.get("config", ["Shift"]))
         if self._mode == "categorias":
             self.lbl.setText(tr(
-                "{nav} Navegar | {sel} Seleccionar | {esc} Salir | Shift Controles | {cfg} Config",
+                "{nav} Navegar | {sel} Seleccionar | {esc} Salir | {cfg} Config",
                 nav=nav, sel=sel, esc=esc, cfg=cfg,
             ))
         else:
             self.lbl.setText(tr(
-                "{nav} Navegar | {sel} Jugar | {esc} Volver | Shift Controles | Escribir para buscar",
-                nav=nav, sel=sel, esc=esc,
+                "{nav} Navegar | {sel} Jugar | {esc} Volver | {cfg} Config | Escribir para buscar",
+                nav=nav, sel=sel, esc=esc, cfg=cfg,
             ))
 
     def retranslate(self):
@@ -461,6 +461,7 @@ class VentanaArcade(QMainWindow):
         self._config_dialog.config_closed.connect(self._on_config_closed)
         self._config_dialog.quit_signal.connect(self.quit)
         self._config_dialog.controls_requested.connect(self._open_controls_from_config)
+        self._config_dialog.platforms_requested.connect(self._open_platform_editor)
         self._nav.register(self._config_dialog)
 
         # Cargar YA la config UI guardada: evita que el bloque de resolucion
@@ -488,8 +489,10 @@ class VentanaArcade(QMainWindow):
         self._current_system = None
         # Ultima plataforma seleccionada (para restaurarla al volver atras)
         self._last_category_id = None
-        # Ultima ROM seleccionada por plataforma (file_path) al salir de ella
+        # Ultima ROM seleccionada por plataforma (file_path) al salir de ella,
+        # persistida en ui_config.json para recordarla entre sesiones.
         self._last_rom_ids = {}
+        self._load_last_rom_ids()
 
         # Controles configurables
         self._controls = load_controls()
@@ -1146,6 +1149,16 @@ class VentanaArcade(QMainWindow):
         except Exception as e:
             print(f"[Snap] Error al sincronizar config: {e}")
 
+    def _snap_scale(self):
+        """Factor de escala (%) de la seccion SNAP del config, como fraccion."""
+        dialog = getattr(self, "_config_dialog", None)
+        if dialog is None:
+            return 1.0
+        try:
+            return float(dialog.config().get("snap", {}).get("scale", 100)) / 100.0
+        except Exception:
+            return 1.0
+
     def _apply_snap_config(self, s=None):
         """Coloca el snap en posicion libre (custom) o lo devuelve al panel."""
         if not hasattr(self, "info_panel") or not hasattr(self.info_panel, "lbl_snap"):
@@ -1181,6 +1194,7 @@ class VentanaArcade(QMainWindow):
                 lay.insertWidget(idx, caja)
                 height = ((getattr(self, "_layout_aplicado", {}) or {})
                         .get("info_panel", {}).get("snap_height", 200))
+                height = round(height * self._snap_scale())
                 caja.setFixedHeight(int(height))
                 caja.show()
         self._update_video_position()
@@ -1377,7 +1391,8 @@ class VentanaArcade(QMainWindow):
             return
         v = self._effective_video()
         if v.get("fixed", False):
-            vw.setGeometry(v["x"], v["y"], v["w"], v["h"])
+            scale = float(v.get("scale", 100)) / 100.0
+            vw.setGeometry(v["x"], v["y"], round(v["w"] * scale), round(v["h"] * scale))
         else:
             self._align_video_to_snap()
 
@@ -1391,24 +1406,25 @@ class VentanaArcade(QMainWindow):
 
     # === Datos ===
 
-    def _init_data(self):
-        """Carga datos iniciales desde el backend (con mensajes al splash)."""
+    def _init_data(self, mode=""):
+        """Carga datos iniciales desde el backend (con mensajes al splash).
+        mode='rescan' fuerza un re-escaneo desde disco."""
         self._splash_msg("Verificando emulatores...", 68)
         try:
             self.backend.check_emulators()
         except Exception as e:
             print(f"[Error] check_emulators: {e}")
 
-        self._load_categories()
+        self._load_categories(mode)
 
-    def _load_categories(self):
+    def _load_categories(self, mode=""):
         """Escaneo en hilo aparte: cache rapida o generacion de file_paths base."""
         hay_cache = any((BASE_PATH / "romslist").glob("*.json"))
-        if hay_cache:
-            self._splash_msg("Cargando ROMs...", 80)
-        else:
+        if not hay_cache or mode == "rescan":
             self._splash_msg("Primer inicio: generando file_paths base...", 76)
-        worker = ScanWorker(self.backend)
+        else:
+            self._splash_msg("Cargando ROMs...", 80)
+        worker = ScanWorker(self.backend, mode)
         worker.signals.done.connect(self._on_categories_ready)
         self._scan_pool.start(worker)
 
@@ -1501,6 +1517,40 @@ class VentanaArcade(QMainWindow):
                         break
             self.wheel.select_index(idx)
             self._on_selection_changed(items[idx])
+
+    # === Memoria del ultimo juego por plataforma ===
+
+    def _load_last_rom_ids(self):
+        """Restaura de ui_config.json el ultimo juego seleccionado por plataforma."""
+        try:
+            cfg = json.loads(self.backend.get_ui_config())
+            data = cfg.get("last_rom_ids") or {}
+            self._last_rom_ids = {
+                str(k): v for k, v in data.items()
+                if isinstance(v, str) and v
+            }
+        except Exception as e:
+            print(f"[Memoria] No se pudieron cargar los ultimos juegos: {e}")
+            self._last_rom_ids = {}
+
+    def _save_last_rom_ids(self):
+        """Persiste en ui_config.json el ultimo juego seleccionado por plataforma."""
+        try:
+            cfg = json.loads(self.backend.get_ui_config())
+            cfg["last_rom_ids"] = dict(self._last_rom_ids)
+            self.backend.save_ui_config(json.dumps(cfg))
+        except Exception as e:
+            print(f"[Memoria] No se pudo guardar el ultimo juego: {e}")
+
+    def _record_last_rom(self, persist=True):
+        """En modo ROMs, guarda el juego seleccionado de la plataforma activa
+        y (opcionalmente) lo persiste en disco."""
+        if self._mode == "roms" and self._current_system and self._current_roms:
+            item = self.wheel.current_item()
+            if item and item.meta:
+                self._last_rom_ids[self._current_system] = item.meta.get("file_path", "")
+        if persist:
+            self._save_last_rom_ids()
 
     # === Navegacion ===
 
@@ -1597,10 +1647,7 @@ class VentanaArcade(QMainWindow):
 
     def _back_to_categories(self):
         # Recordar el ultimo juego de esta plataforma antes de salir de ella
-        if self._current_system and self._current_roms:
-            item = self.wheel.current_item()
-            if item and item.meta:
-                self._last_rom_ids[self._current_system] = item.meta.get("file_path", "")
+        self._record_last_rom()
         self._mode = "categorias"
         self._current_category = None
         self._current_system = None
@@ -1799,10 +1846,11 @@ class VentanaArcade(QMainWindow):
             self.wheel.item_height = s.get("item_height", 70)
             self.wheel.update()
 
-        # Snap alto
+        # Snap alto (se aplica la escala de la seccion SNAP)
         s = config.get("snap", {})
         if s.get("max_height"):
-            self.info_panel.lbl_snap.setFixedHeight(s["max_height"])
+            scale = float(s.get("scale", 100)) / 100.0
+            self.info_panel.lbl_snap.setFixedHeight(round(s["max_height"] * scale))
 
         # Video: aplicar en vivo (con preview aunque no haya reproduccion)
         self._apply_video_config(self._rect_stored_to_real(config.get("video") or {}))
@@ -1821,8 +1869,10 @@ class VentanaArcade(QMainWindow):
             and self._media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState
         )
         if v.get("fixed"):
+            scale = float(v.get("scale", 100)) / 100.0
             self._video_widget.setGeometry(
-                v.get("x", 30), v.get("y", 90), v.get("w", 490), v.get("h", 368)
+                v.get("x", 30), v.get("y", 90),
+                round(v.get("w", 490) * scale), round(v.get("h", 368) * scale)
             )
             # Si nada se reproduce, mostrar el rectangulo como guia de posicion
             if not reproduciendo:
@@ -2120,6 +2170,39 @@ class VentanaArcade(QMainWindow):
         """Abre el mapeo de botones pidiendolo desde el config dialog."""
         self._open_controls()
 
+    def _open_platform_editor(self):
+        """Abre el editor de plataformas desde el config dialog."""
+        from widgets.platform_editor import PlatformEditor
+
+        if getattr(self, "_platform_editor", None) is None:
+            self._platform_editor = PlatformEditor(self)
+            self._platform_editor.platforms_changed.connect(self._on_platforms_changed)
+            self._nav.register(self._platform_editor)
+        self._platform_editor.load_config(self.backend.config)
+        if self._platform_editor.isVisible():
+            self._platform_editor.hide()
+        else:
+            self._platform_editor.show()
+            self._platform_editor.raise_()
+            self._platform_editor.activateWindow()
+
+    def _on_platforms_changed(self):
+        """Al cambiar las plataformas: guardar config y re-escaneo (debounce)."""
+        try:
+            config = self._platform_editor.config()
+            self.backend.save_config(json.dumps(config))
+        except Exception as e:
+            print(f"[Plataformas] Error al guardar config: {e}")
+            return
+        if getattr(self, "_rescan_platforms_timer", None) is None:
+            self._rescan_platforms_timer = QTimer(self)
+            self._rescan_platforms_timer.setSingleShot(True)
+            self._rescan_platforms_timer.setInterval(500)
+            self._rescan_platforms_timer.timeout.connect(
+                lambda: self._init_data("rescan")
+            )
+        self._rescan_platforms_timer.start()
+
     def _toggle_controls(self):
         if self._controls_open:
             self._controls_dialog.close()
@@ -2168,7 +2251,7 @@ class VentanaArcade(QMainWindow):
             self._toggle_positions_admin()
             return
         if key == Qt.Key_Shift:
-            self._toggle_controls()
+            self._toggle_config()
             return
 
         for action in actions:
@@ -2246,11 +2329,57 @@ class VentanaArcade(QMainWindow):
         """Slot para cerrar desde backend."""
         self.quit()
 
+    def closeEvent(self, event):
+        # Guardar la seleccion actual de la plataforma activa antes de cerrar
+        self._record_last_rom()
+        super().closeEvent(event)
+
     def quit(self):
         self._stop_video()
         if hasattr(self.backend, '_emulator_process') and self.backend._emulator_process:
             self.backend._emulator_process.terminate()
         self.close()
+
+
+class CursorAutoHide(QObject):
+    """Oculta el cursor tras IDLE_MS sin movimiento; lo muestra al mover el mouse."""
+
+    IDLE_MS = 3000
+
+    def __init__(self, app):
+        super().__init__()
+        self._app = app
+        self._hidden = False
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.setInterval(self.IDLE_MS)
+        self._timer.timeout.connect(self._hide)
+        app.installEventFilter(self)
+        self._show()
+
+    def eventFilter(self, obj, event):
+        if isinstance(obj, QWidget) and not obj.hasMouseTracking():
+            self._enable_tracking(obj)
+        if event.type() == QEvent.MouseMove:
+            self._show()
+        return False
+
+    def _enable_tracking(self, widget):
+        widget.setMouseTracking(True)
+        for child in widget.findChildren(QWidget):
+            child.setMouseTracking(True)
+
+    def _show(self):
+        self._timer.start()
+        if self._hidden:
+            self._hidden = False
+            if self._app.overrideCursor() is not None:
+                self._app.restoreOverrideCursor()
+
+    def _hide(self):
+        if not self._hidden:
+            self._hidden = True
+            self._app.setOverrideCursor(Qt.CursorShape.BlankCursor)
 
 
 def main():
@@ -2285,8 +2414,8 @@ def main():
 
     app = QApplication(sys.argv)
     app.setApplicationName("Luna")
-    # Ocultar el cursor del mouse en toda la interfaz (estilo arcade)
-    app.setOverrideCursor(Qt.CursorShape.BlankCursor)
+    # El cursor se muestra al mover el mouse y se oculta solo tras 3s sin movimiento
+    cursor_hider = CursorAutoHide(app)
 
     # Splash como overlay dentro de la ventana principal (misma pantalla):
     # se muestra la ventana ya y el splash se incrusta encima cubriendola

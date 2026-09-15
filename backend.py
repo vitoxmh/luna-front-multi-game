@@ -249,6 +249,43 @@ class Backend(QObject):
             return json.dumps({"success": False, "error": str(e)})
 
     @Slot(result=str)
+    def get_emulators(self) -> str:
+        """Retorna la lista de emuladores configurados."""
+        return json.dumps(self.config.get("emulators", {}), ensure_ascii=False, indent=2)
+
+    @Slot(str, result=str)
+    def save_emulator(self, emulator_json: str) -> str:
+        """Guarda un emulador (nuevo o actualizado) en config.json."""
+        try:
+            data = json.loads(emulator_json)
+            emu_id = data.get("id", "")
+            emu_config = data.get("config", {})
+            if not emu_id:
+                return json.dumps({"success": False, "error": "ID de emulador requerido"})
+            self.config.setdefault("emulators", {})[emu_id] = emu_config
+            success = save_configuration(self.config)
+            if success:
+                rom_paths = emu_config.get("rom_paths", "")
+                if isinstance(rom_paths, str) and rom_paths:
+                    import os
+                    os.makedirs(get_relative_path(rom_paths), exist_ok=True)
+            return json.dumps({"success": success, "id": emu_id})
+        except Exception as e:
+            return json.dumps({"success": False, "error": str(e)})
+
+    @Slot(str, result=str)
+    def delete_emulator(self, emu_id: str) -> str:
+        """Elimina un emulador de config.json."""
+        try:
+            if emu_id in self.config.get("emulators", {}):
+                del self.config["emulators"][emu_id]
+                success = save_configuration(self.config)
+                return json.dumps({"success": success})
+            return json.dumps({"success": False, "error": "Emulador no encontrado"})
+        except Exception as e:
+            return json.dumps({"success": False, "error": str(e)})
+
+    @Slot(result=str)
     def get_ui_config(self) -> str:
         """Retorna la configuración UI (ui_config.json) como JSON."""
         import paths
@@ -263,9 +300,9 @@ class Backend(QObject):
             "colors": { "background": "#000000", "text": "#ffffff", "selected": "#ff6600", "accent": "#00ccff", "text_dim": "#888888", "border": "#222222" },
             "wheel": { "visible_items": 13, "radio": 320, "angular_separation": 8, "central_scale": 1.4, "min_scale": 0.3, "item_width": 300, "item_height": 70 },
             "background": { "blur": 12, "brightness": 0.25, "scale": 1.15, "use_snap": True, "images": [], "active_image": -1 },
-            "snap": { "max_height": 180 },
+            "snap": { "max_height": 180, "scale": 100 },
             "info_panel": { "width": 320 },
-            "video": { "x": 30, "y": 90, "w": 490, "h": 368, "fixed": False }
+            "video": { "x": 30, "y": 90, "w": 490, "h": 368, "fixed": False, "scale": 100 }
         })
 
     @Slot(str, result=str)
