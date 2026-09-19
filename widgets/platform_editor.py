@@ -158,10 +158,17 @@ class PlatformEditor(QDialog):
             file_filter=tr("Ejecutables (*.exe);;Archivos (*.*)")
         )
         self._txt_launch_args = self._make_field("Args de lanzamiento", form_layout)
-        self._txt_launch_args.setPlaceholderText("-L {core} --fullscreen {rompath}")
+        self._txt_launch_args.setPlaceholderText(
+            "Placeholders: {rompath} ruta completa | {romdir} carpeta | "
+            "{romname} nombre sin ext | {core} core\n"
+            "Ej: {romname} -rompath {romdir}"
+        )
         self._txt_extensions = self._make_field("Extensiones", form_layout)
         self._txt_extensions.setPlaceholderText(".nes,.zip")
         self._txt_rom_paths = self._make_folder_field("Carpeta ROMs", form_layout)
+        self._txt_images_path = self._make_folder_field("Carpeta wheels", form_layout)
+        self._txt_videos_path = self._make_folder_field("Carpeta snaps / videos", form_layout)
+        self._txt_marquees_path = self._make_folder_field("Carpeta marquee", form_layout)
         self._txt_wheel_img = self._make_file_field(
             "Imagen wheel", form_layout,
             file_filter=tr("Imagenes (*.png *.jpg *.jpeg *.webp *.bmp *.svg)")
@@ -403,6 +410,9 @@ class PlatformEditor(QDialog):
         launch_args = self._txt_launch_args.text().strip()
         extensions_str = self._txt_extensions.text().strip()
         rom_paths = self._txt_rom_paths.text().strip()
+        images_path = self._txt_images_path.text().strip()
+        videos_path = self._txt_videos_path.text().strip()
+        marquees_path = self._txt_marquees_path.text().strip()
         wheel_img = self._txt_wheel_img.text().strip()
         bg_image = self._txt_bg_image.text().strip()
         icon_text = self._cmb_icon.currentText()
@@ -435,6 +445,12 @@ class PlatformEditor(QDialog):
         }
         if rom_paths:
             emu_config["rom_paths"] = rom_paths
+        if images_path:
+            emu_config["images_path"] = images_path
+        if videos_path:
+            emu_config["videos_path"] = videos_path
+        if marquees_path:
+            emu_config["marquees_path"] = marquees_path
         if wheel_img:
             emu_config["wheel_img"] = wheel_img
         if bg_image:
@@ -461,6 +477,9 @@ class PlatformEditor(QDialog):
         self._txt_launch_args.clear()
         self._txt_extensions.clear()
         self._txt_rom_paths.clear()
+        self._txt_images_path.clear()
+        self._txt_videos_path.clear()
+        self._txt_marquees_path.clear()
         self._txt_wheel_img.clear()
         self._txt_bg_image.clear()
         idx = self._cmb_icon.findText(self.ICONS.get("default", "Otro"))
@@ -479,6 +498,9 @@ class PlatformEditor(QDialog):
             self._txt_rom_paths.setText(rom_paths)
         else:
             self._txt_rom_paths.setText("")
+        self._txt_images_path.setText(emu_config.get("images_path", ""))
+        self._txt_videos_path.setText(emu_config.get("videos_path", ""))
+        self._txt_marquees_path.setText(emu_config.get("marquees_path", ""))
         self._txt_wheel_img.setText(emu_config.get("wheel_img", ""))
         self._txt_bg_image.setText(emu_config.get("bg_image", ""))
         icon = emu_config.get("icon", "default")

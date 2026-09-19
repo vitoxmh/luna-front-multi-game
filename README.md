@@ -10,12 +10,12 @@
 
 Frontend for selecting and launching emulator ROMs with a 3D rotating wheel
 in Hyperspin style. Written 100% in native Python with **PySide6** (no
-HTML/CSS/JS). Runs on **Windows and Linux**.
+HTML/CSS/JS). Runs on **any OS with Python 3.10+**: Windows, Linux, macOS.
 
 ### Features
 
-- **3D rotating wheel** for platforms (MAME, NES, SNES, Neo Geo, Naomi...) and a second
-  wheel for ROMs.
+- **3D rotating wheel** for platforms (MAME, NES, SNES, Neo Geo, Naomi,
+  GameCube...) and a second wheel for ROMs.
 - Backgrounds with blur/brightness/vignette, animated snap (video or image) per
   game, and info panel.
 - Automatic emulator launch configured per platform. Works with **any
@@ -36,6 +36,11 @@ HTML/CSS/JS). Runs on **Windows and Linux**.
 - **PyInstaller support**: packaged as a standalone binary with `paths.py`.
 - Custom overlay images with configurable Z-order, position and scale.
 - Multi-source background images with per-image brightness and stretch settings.
+- **Platform/emulator manager** from the UI (Shift panel -> "Manage platforms..."):
+  add, edit or delete emulators with configurable ROM, wheel, snaps/videos and
+  marquee folders.
+- **Auto-hiding cursor**: the mouse cursor disappears after a few seconds without
+  movement and reappears as soon as you move it.
 
 ---
 
@@ -53,7 +58,7 @@ HTML/CSS/JS). Runs on **Windows and Linux**.
 :: 1. Install Python from https://www.python.org/downloads/
 ::    IMPORTANT: check "Add Python to PATH"
 
-cd frontend-arcade
+cd luna-front-multi-game
 
 :: 2. Virtual environment (recommended)
 python -m venv venv
@@ -66,22 +71,51 @@ pip install -r requirements.txt
 python main.py
 ```
 
-### Installation on Linux (Debian/Ubuntu)
+### Installation on Linux
+
+Install Python 3.10+ from your distro package manager (see examples below),
+then run:
 
 ```bash
+# 1. Dependencies (PySide6 system libs) -- use the commands for your distro:
+
+# Debian / Ubuntu / Linux Mint
 sudo apt update
 sudo apt install -y python3-pip python3-venv \
     libgl1-mesa-glx libegl1 libxkbcommon0 \
     libfontconfig1 libdbus-1-3
 
-cd frontend-arcade
+# Arch / Manjaro
+sudo pacman -S python python-pip python-virtualenv
+
+# Fedora
+sudo dnf install python3 python3-pip python3-virtualenv
+
+cd luna-front-multi-game
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
-# Emulators (examples)
+# 2. Emulators (examples, use your distro's packages or standalone binaries)
+#    Debian/Ubuntu:
 sudo apt install -y mame retroarch
 
+python main.py
+```
+
+### Installation on macOS
+
+```bash
+# 1. Install Python 3.10+ from https://www.python.org/downloads/
+#    (no extra system packages are needed for PySide6 on macOS)
+
+cd luna-front-multi-game
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# 2. Emulators: install standalone apps or RetroArch
+#    from https://www.retroarch.com/ into /Applications
 python main.py
 ```
 
@@ -90,7 +124,7 @@ python main.py
 ### Project Structure
 
 ```
-frontend-arcade/
+luna-front-multi-game/
 ├── main.py                 # Entry point: window, wheel, backgrounds, hotkeys
 ├── backend.py              # Services: scan, launch, scrape, config (Qt signals)
 ├── launcher.py             # Emulator command builder + subprocess launch
@@ -112,7 +146,8 @@ frontend-arcade/
 │   ├── layout_naomi.json   # Per-platform override (Naomi)
 │   ├── layout_neogeo.json  # Per-platform override (Neo Geo)
 │   ├── layout_nes.json     # Per-platform override (NES)
-│   └── layout_snes.json    # Per-platform override (SNES)
+│   ├── layout_snes.json    # Per-platform override (SNES)
+│   └── layout_gamecube.json# Per-platform override (GameCube)
 │
 ├── widgets/                # Custom PySide6 widgets
 │   ├── wheel_widget.py     # 3D carousel wheel (QPainter)
@@ -121,6 +156,7 @@ frontend-arcade/
 │   ├── controls_dialog.py  # Gamepad/keyboard mapping dialog
 │   ├── focus_nav.py        # D-pad/keyboard navigation for dialogs
 │   ├── layout_editor.py    # Live layout editor (Ctrl+L)
+│   ├── platform_editor.py  # Platform/emulator editor (Shift -> Manage platforms)
 │   ├── posiciones_admin.py # Position admin (Ctrl+P)
 │   └── splash.py           # Animated splash screen
 │
@@ -133,6 +169,11 @@ frontend-arcade/
 │   └── personalizadas/     # User custom images (versioned)
 ├── romslist/               # Scan cache: one JSON per emulator (gitignored)
 ├── game_cache.json         # Scraper metadata cache (gitignored)
+├── Luna.spec               # PyInstaller spec (onedir build)
+├── build_windows.ps1       # Build script for Windows (outputs dist/Luna/Luna.exe)
+├── build_linux.sh          # Build script for Linux (outputs dist/Luna/Luna)
+├── dist/                   # Packaged output (Luna/ folder with the executable)
+├── build/                  # PyInstaller working cache (generated on build)
 ├── assets/
 │   ├── luna.jpg            # Splash screen image
 │   └── styles/theme.qss    # Qt stylesheet
@@ -163,6 +204,8 @@ frontend-arcade/
 
 All configuration lives in `config.json`. Edit manually or from the config
 panel (**Shift** key). A `config.json.example` is provided as a starting point.
+The **PLATAFORMAS** section of the Shift panel also opens a visual editor
+("Manage platforms...") to add, edit or delete emulators without touching JSON.
 
 #### General Keys
 
@@ -239,10 +282,13 @@ If `launch_args` is not defined, `{rompath}` is used by default.
 When `executable` is not an existing absolute path:
 
 1. System `PATH` variable.
-2. Linux: `/usr/bin`, `/usr/local/bin`, `/snap/bin`, `/opt/<name>/<name>`,
-   `/usr/games`.
-3. Windows: drives `C:\ D:\ E:\` inside `Emuladores\`, `Program Files\`,
+2. Windows: drives `C:\ D:\ E:\` inside `Emuladores\`, `Program Files\`,
    `Program Files (x86)\` with pattern `<folder>\<name>\<name>.exe`.
+3. Linux: `/usr/bin`, `/usr/local/bin`, `/snap/bin`, `/opt/<name>/<name>`,
+   `/usr/games`.
+4. macOS: `/Applications/<name>.app/Contents/MacOS/<name>`,
+   `/Applications/Emulators/`, Homebrew (`/opt/homebrew/bin`, `/usr/local/bin`),
+   MacPorts (`/opt/local/bin`).
 
 #### `rom_paths`: Simple vs Subcategories
 
@@ -415,7 +461,10 @@ The app supports **English** and **Spanish** with live language switching.
 
 ### Adding a New Emulator
 
-1. Edit `config.json` and add an entry in `emulators`.
+1. Add a new entry under `emulators`. The easiest way is the built-in
+   **platform editor** (Shift panel -> PLATAFORMAS -> "Manage platforms..." ->
+   "+ Add"), which also creates the ROM folder and lets you set the wheel,
+   snap/video and marquee folders. You can also edit `config.json` manually.
 2. Define `executable`, `launch_args`, `extensions`, and `rom_paths`.
 3. Create the ROM folder and copy your games there.
 4. (Optional) Add wheels in `images/<emu>/wheel/` and snaps in
@@ -432,6 +481,29 @@ The app supports PyInstaller packaging via `paths.py`:
   while editable/config files live next to the executable.
 - This allows `config.json`, `romslist/`, `images/`, etc. to persist across
   runs when packaged as a standalone `.exe`.
+
+Two ready-made build scripts are included (onedir layout, recommended for a
+data-heavy app like this one):
+
+**Windows** (produces `dist/Luna/Luna.exe`):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File build_windows.ps1
+```
+
+**Linux** (produces `dist/Luna/Luna`):
+
+```bash
+./build_linux.sh
+```
+
+Both scripts copy `assets/` and `layouts/` (plus `config.json.example`) next to
+the executable, so a clean first run generates `config.json`, `romslist/`,
+`roms/` and game media inside `dist/Luna/`. Platform/custom images
+(`images/plataforma`, `images/personalizadas`) are **not** exported: copy them
+yourself into `dist/Luna/images/` if you want them in the build.
+
+A generic one-file build is also possible:
 
 ```bash
 pyinstaller --onefile --add-data "assets;assets" --add-data "layouts;layouts" main.py
@@ -454,8 +526,9 @@ Happens when the same file exists on two platforms. Launching filters by the
 active platform's emulator; verify the zip is in the correct `rom_paths` folder.
 
 **PySide6 won't install**
-Linux: install `libgl1-mesa-glx libegl1` first. Windows: verify Python is in
-PATH.
+Windows: verify Python is in PATH. Linux: install the PySide6 system libs
+listed in the install steps (`libgl1-mesa-glx libegl1 ...`) first. macOS: use a
+recent Python from python.org; no extra system packages are required.
 
 **No video/snaps**
 Check that `images/<emu>/snap/<rom_name>.mp4|.png` exists using the same base
@@ -486,12 +559,13 @@ Follow me on social media:
 
 Frontend para seleccionar y lanzar ROMs de emuladores con rueda giratoria 3D
 estilo Hyperspin. Escrito 100% en Python nativo con **PySide6** (sin
-HTML/CSS/JS). Funciona en **Windows y Linux**.
+HTML/CSS/JS). Funciona en **cualquier sistema con Python 3.10+**: Windows,
+Linux, macOS.
 
 ### Caracteristicas
 
-- **Rueda 3D giratoria** de plataformas (MAME, NES, SNES, Neo Geo, Naomi...) y segunda
-  rueda con las ROMs.
+- **Rueda 3D giratoria** de plataformas (MAME, NES, SNES, Neo Geo, Naomi,
+  GameCube...) y segunda rueda con las ROMs.
 - Fondos con blur/brillo/vignette, snap animado (video o imagen) por juego y
   panel de informacion.
 - Lanzamiento automatico del emulador configurado por plataforma. Funciona
@@ -513,6 +587,11 @@ HTML/CSS/JS). Funciona en **Windows y Linux**.
 - **Soporte PyInstaller**: empaquetable como binario standalone con `paths.py`.
 - Imagenes overlay personalizables con Z-order, posicion y escala configurables.
 - Imagenes de fondo multi-fuente con brillo y ajuste por imagen.
+- **Administrador de plataformas** desde la interfaz (panel Shift -> "Gestionar
+  plataformas..."): agrega, edita o elimina emuladores con carpetas de ROMs,
+  wheels, snaps/videos y marquee configurables.
+- **Cursor auto-ocultable**: el puntero del mouse se oculta tras unos segundos
+  sin movimiento y reaparece apenas lo muevas.
 
 ---
 
@@ -530,7 +609,7 @@ HTML/CSS/JS). Funciona en **Windows y Linux**.
 :: 1. Instalar Python desde https://www.python.org/downloads/
 ::    IMPORTANTE: marcar "Add Python to PATH"
 
-cd frontend-arcade
+cd luna-front-multi-game
 
 :: 2. Entorno virtual (recomendado)
 python -m venv venv
@@ -543,22 +622,51 @@ pip install -r requirements.txt
 python main.py
 ```
 
-### Instalacion en Linux (Debian/Ubuntu)
+### Instalacion en Linux
+
+Instala Python 3.10+ con el gestor de paquetes de tu distro (ejemplos abajo),
+y luego ejecuta:
 
 ```bash
+# 1. Dependencias (librerias de sistema para PySide6) -- usa tu distro:
+
+# Debian / Ubuntu / Linux Mint
 sudo apt update
 sudo apt install -y python3-pip python3-venv \
     libgl1-mesa-glx libegl1 libxkbcommon0 \
     libfontconfig1 libdbus-1-3
 
-cd frontend-arcade
+# Arch / Manjaro
+sudo pacman -S python python-pip python-virtualenv
+
+# Fedora
+sudo dnf install python3 python3-pip python3-virtualenv
+
+cd luna-front-multi-game
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
-# Emuladores (ejemplos)
+# 2. Emuladores (ejemplos, usa los paquetes de tu distro o binarios standalone)
+#    Debian/Ubuntu:
 sudo apt install -y mame retroarch
 
+python main.py
+```
+
+### Instalacion en macOS
+
+```bash
+# 1. Instala Python 3.10+ desde https://www.python.org/downloads/
+#    (en macOS no hacen falta paquetes extra de sistema para PySide6)
+
+cd luna-front-multi-game
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# 2. Emuladores: instala apps standalone o RetroArch
+#    desde https://www.retroarch.com/ en /Applications
 python main.py
 ```
 
@@ -567,7 +675,7 @@ python main.py
 ### Estructura del proyecto
 
 ```
-frontend-arcade/
+luna-front-multi-game/
 ├── main.py               # Punto de entrada: ventana, rueda, fondos, atajos
 ├── backend.py            # Servicios: escaneo, lanzamiento, scraping, config
 ├── launcher.py           # Construccion del comando y ejecucion del emulador
@@ -589,7 +697,8 @@ frontend-arcade/
 │   ├── layout_naomi.json # Override de layout para Naomi
 │   ├── layout_neogeo.json# Override de layout para Neo Geo
 │   ├── layout_nes.json   # Override de layout para NES
-│   └── layout_snes.json  # Override de layout para SNES
+│   ├── layout_snes.json  # Override de layout para SNES
+│   └── layout_gamecube.json # Override de layout para GameCube
 │
 ├── widgets/              # Widgets PySide6 propios
 │   ├── wheel_widget.py       # Rueda 3D custom (QPainter)
@@ -598,6 +707,7 @@ frontend-arcade/
 │   ├── controls_dialog.py    # Dialogo de mapeo gamepad/teclado
 │   ├── focus_nav.py          # Navegacion D-pad/teclado en dialogos
 │   ├── layout_editor.py      # Editor de layout en vivo (Ctrl+L)
+│   ├── platform_editor.py    # Editor de plataformas (Shift -> Gestionar plataformas)
 │   ├── posiciones_admin.py   # Posiciones rueda/info/video (Ctrl+P)
 │   └── splash.py             # Splash screen animado
 │
@@ -610,6 +720,11 @@ frontend-arcade/
 │   └── personalizadas/       # Imagenes propias del usuario (versionado)
 ├── romslist/             # Cache del escaneo: un JSON por emulador (gitignored)
 ├── game_cache.json       # Cache del scraper (gitignored)
+├── Luna.spec             # Spec de PyInstaller (build onedir)
+├── build_windows.ps1     # Script de build para Windows (genera dist/Luna/Luna.exe)
+├── build_linux.sh        # Script de build para Linux (genera dist/Luna/Luna)
+├── dist/                 # Salida empaquetada (carpeta Luna/ con el ejecutable)
+├── build/                # Cache de trabajo de PyInstaller (se genera al compilar)
 ├── assets/
 │   ├── luna.jpg          # Imagen del splash screen
 │   └── styles/theme.qss  # Stylesheet Qt
@@ -643,7 +758,9 @@ frontend-arcade/
 
 Toda la configuracion vive en `config.json`. Se puede editar a mano o desde el
 panel de configuracion (tecla **Shift**). Se incluye `config.json.example` como
-punto de partida.
+punto de partida. La seccion PLATAFORMAS del panel Shift tambien abre un editor
+visual ("Gestionar plataformas...") para agregar, editar o eliminar emuladores
+sin tocar el JSON.
 
 #### Claves generales
 
@@ -720,10 +837,13 @@ Si no se define `launch_args` se usa `{rompath}` por defecto.
 Orden de busqueda cuando `executable` no es una ruta absoluta existente:
 
 1. Variable `PATH` del sistema.
-2. Linux: `/usr/bin`, `/usr/local/bin`, `/snap/bin`, `/opt/<nombre>/<nombre>`,
-   `/usr/games`.
-3. Windows: unidades `C:\ D:\ E:\` dentro de `Emuladores\`, `Program Files\`,
+2. Windows: unidades `C:\ D:\ E:\` dentro de `Emuladores\`, `Program Files\`,
    `Program Files (x86)\` con el patron `<carpeta>\<nombre>\<nombre>.exe`.
+3. Linux: `/usr/bin`, `/usr/local/bin`, `/snap/bin`, `/opt/<nombre>/<nombre>`,
+   `/usr/games`.
+4. macOS: `/Applications/<nombre>.app/Contents/MacOS/<nombre>`,
+   `/Applications/Emuladores/`, Homebrew (`/opt/homebrew/bin`, `/usr/local/bin`),
+   MacPorts (`/opt/local/bin`).
 
 #### `rom_paths` simple vs subcategorias
 
@@ -898,7 +1018,11 @@ La app soporta **ingles** y **espanol** con cambio de idioma en vivo.
 
 ### Agregar un nuevo emulador
 
-1. Edita `config.json` y anade una entrada en `emulators`.
+1. Anade una nueva entrada en `emulators`. La forma mas facil es el **editor de
+   plataformas** integrado (panel Shift -> PLATAFORMAS -> "Gestionar
+   plataformas..." -> "+ Agregar"), que tambien crea la carpeta de ROMs y
+   permite fijar las carpetas de wheels, snaps/videos y marquee. Tambien puedes
+   editar `config.json` a mano.
 2. Define `executable`, `launch_args`, `extensions` y `rom_paths`.
 3. Crea la carpeta de ROMs y copia ahi tus juegos.
 4. (Opcional) Anade wheels en `images/<emu>/wheel/` y snaps en
@@ -915,6 +1039,30 @@ La app soporta empaquetado con PyInstaller via `paths.py`:
   `sys._MEIPASS` mientras que los archivos editables/config viven junto al ejecutable.
 - Esto permite que `config.json`, `romslist/`, `images/`, etc. persistan entre
   ejecuciones cuando se empaquetan como un `.exe` standalone.
+
+Se incluyen dos scripts de build listos para usar (layout onedir, recomendado
+para una app con tantos datos como esta):
+
+**Windows** (genera `dist/Luna/Luna.exe`):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File build_windows.ps1
+```
+
+**Linux** (genera `dist/Luna/Luna`):
+
+```bash
+./build_linux.sh
+```
+
+Ambos scripts copian `assets/` y `layouts/` (ademas de `config.json.example`)
+junto al ejecutable, de modo que un primer arranque limpio genera `config.json`,
+`romslist/`, `roms/` y el media de juegos dentro de `dist/Luna/`. Las imagenes
+de plataforma/personalizadas (`images/plataforma`, `images/personalizadas`)
+**no** se exportan: copialas tu mismo dentro de `dist/Luna/images/` si las
+quieres en el build.
+
+Tambien es posible un build one-file generico:
 
 ```bash
 pyinstaller --onefile --add-data "assets;assets" --add-data "layouts;layouts" main.py
@@ -938,8 +1086,10 @@ filtra por emulador de la plataforma activa; verifica que el zip este en la
 carpeta `rom_paths` correcta.
 
 **PySide6 no instala**
-Linux: instala antes `libgl1-mesa-glx libegl1`. Windows: verifica que Python
-este en PATH.
+Windows: verifica que Python este en PATH. Linux: instala primero las
+librerias de sistema para PySide6 listadas en la instalacion
+(`libgl1-mesa-glx libegl1 ...`). macOS: usa un Python reciente de python.org;
+no se requieren paquetes extra de sistema.
 
 **No hay video/snaps**
 Comprueba que exista `images/<emu>/snap/<nombre_rom>.mp4|.png` usando el

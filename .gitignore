@@ -56,6 +56,7 @@ config.json
 config.local.json
 controls.json
 ui_config.json
+config_old.json
 # Secretos / credenciales
 .env
 *.env
@@ -73,3 +74,6 @@ secrets.*
 .DS_Store
 Thumbs.db
 desktop.ini
+build
+dist
+cfg

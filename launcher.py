@@ -64,10 +64,10 @@ def launch_rom(rom_info, config: dict, screen_rect=None) -> subprocess.Popen | N
     print(f"[LANZANDO] {' '.join(command)}")
 
     try:
-        if sys.platform == "linux":
-            proc = subprocess.Popen(command, start_new_session=True)
-        else:
+        if sys.platform == "win32":
             proc = subprocess.Popen(command, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+        else:
+            proc = subprocess.Popen(command, start_new_session=True)
 
         print(f"[OK] Emulador lanzado: {rom_info.name}")
 
@@ -196,6 +196,18 @@ def _find_executable(name: str) -> str:
     if sys.platform == "linux":
         for folder in ["/usr/bin", "/usr/local/bin", "/snap/bin", "/opt", "/usr/games"]:
             variant = f"{folder}/{name}/{name}" if "/opt" in folder else f"{folder}/{name}"
+            if Path(variant).exists():
+                return variant
+
+    elif sys.platform == "darwin":
+        candidates = [
+            f"/Applications/{name}.app/Contents/MacOS/{name}",
+            f"/Applications/Emulators/{name}.app/Contents/MacOS/{name}",
+            f"/opt/homebrew/bin/{name}",
+            f"/usr/local/bin/{name}",
+            f"/opt/local/bin/{name}",
+        ]
+        for variant in candidates:
             if Path(variant).exists():
                 return variant
 
