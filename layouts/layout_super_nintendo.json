@@ -1,0 +1,49 @@
+{
+    "video": {
+        "fixed": false,
+        "x": 30,
+        "y": 78,
+        "w": 490,
+        "h": 368,
+        "z": 0
+    },
+    "snap_pos": {
+        "custom": true,
+        "x": 886,
+        "y": 168,
+        "w": 356,
+        "h": 308,
+        "skew_x": 90,
+        "skew_y": 90,
+        "pinch_x": 58,
+        "pinch_y": 34,
+        "rotation": 77,
+        "corners": {
+            "tl": [
+                0,
+                7
+            ],
+            "tr": [
+                -3,
+                -6
+            ],
+            "bl": [
+                0,
+                -26
+            ],
+            "br": [
+                0,
+                0
+            ]
+        }
+    },
+    "images": [],
+    "wheel": {
+        "base_x_percent": 0.0,
+        "line_x_start_percent": 0.05
+    },
+    "background": {
+        "use_snap": false,
+        "image": "images/personalizadas/Gemini_Generated_Image_b50emcb50emcb50e_1.jpg"
+    }
+}

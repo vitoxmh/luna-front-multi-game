@@ -19,6 +19,7 @@ Atajos:
 import sys
 import os
 import json
+import math
 from pathlib import Path
 
 from PySide6.QtWidgets import (
@@ -26,10 +27,10 @@ from PySide6.QtWidgets import (
     QLabel, QFrame, QPushButton, QSizePolicy
 )
 from PySide6.QtCore import (
-    Qt, QTimer, QUrl, Signal, Slot, QSize, QPoint, QRect, QEvent,
+    Qt, QTimer, QUrl, Signal, Slot, QSize, QPoint, QPointF, QRect, QRectF, QEvent,
     QObject, QRunnable, QThreadPool, QFileSystemWatcher
 )
-from PySide6.QtGui import QFont, QColor, QPalette, QPixmap, QImage, QPainter
+from PySide6.QtGui import QFont, QColor, QPalette, QPixmap, QImage, QPainter, QPainterPath, QTransform
 
 from backend import Backend
 from widgets.wheel_widget import WheelWidget, WheelItem
@@ -70,6 +71,16 @@ def load_layout():
 
 
 LAYOUT = load_layout()
+
+
+def game_display_name(rom) -> str:
+    """Nombre visible de una ROM: original_name si el scrapeo lo mejoro,
+    si no el nombre del archivo."""
+    name = (rom or {}).get("name", "") or ""
+    original = (rom or {}).get("original_name", "") or ""
+    if original and original != name:
+        return original
+    return name
 
 
 class _ScrapeSignals(QObject):
@@ -229,7 +240,7 @@ class InfoPanel(QWidget):
     def set_rom(self, rom):
         self._current_cat = None
         self._current_rom = rom
-        self.lbl_name.setText(rom.get("name", ""))
+        self.lbl_name.setText(game_display_name(rom))
         size = rom.get("size_kb", 0)
         ext = rom.get("extension", "")
         if size > 1024:
@@ -374,30 +385,159 @@ class TopBar(QWidget):
         )
 
 
+def _solve_homography(src, dst):
+    """Resuelve la homografia (sistema 8x8) que mapea los 4 puntos de
+    'src' (mismo orden: tl, tr, bl, br) a los de 'dst'. Devuelve un
+    QTransform proyectivo o None si el sistema degenera."""
+    A, b = [], []
+    for (x, y), (u, v) in zip(src, dst):
+        A.append([x, y, 1.0, 0.0, 0.0, 0.0, -x * u, -y * u])
+        b.append(u)
+        A.append([0.0, 0.0, 0.0, x, y, 1.0, -x * v, -y * v])
+        b.append(v)
+    n = 8
+    M = [row[:] + [b_i] for row, b_i in zip(A, b)]
+    for col in range(n):
+        piv = max(range(col, n), key=lambda r: abs(M[r][col]))
+        if abs(M[piv][col]) < 1e-12:
+            return None
+        M[col], M[piv] = M[piv], M[col]
+        pv = M[col][col]
+        for c in range(col, n + 1):
+            M[col][c] /= pv
+        for r in range(n):
+            if r == col:
+                continue
+            f = M[r][col]
+            if f:
+                for c in range(col, n + 1):
+                    M[r][c] -= f * M[col][c]
+    a, b_, c, d, e, f, g, h = (M[r][n] for r in range(n))
+    return QTransform(a, d, g, b_, e, h, c, f, 1.0)
+
+
 if HAS_VIDEO:
     class WidgetVideo(QWidget):
         """Muestra el video pintando los frames del QVideoSink en un widget
         normal (sin ventana nativa): las imagenes con Z y la transparencia
-        se componen siempre correctamente."""
+        se componen siempre correctamente.
+
+        Si se configura un cuadrilatero con setQuad(), los frames se
+        deforman con perspectiva (homografia) para encajarlos en la
+        pantalla de un TV visto en angulo."""
 
         def __init__(self, parent=None):
             super().__init__(parent)
             self._frame = QVideoFrame()
-            self.setStyleSheet("background: black;")
+            self._quad = None
+            self._quad_key = None
+            self._quad_tf = None
+            self._border_radius = 0
+            self.setAttribute(Qt.WA_TranslucentBackground)
+            self.setStyleSheet("background: transparent;")
+
+        def setQuad(self, quad):
+            if quad != self._quad:
+                self._quad = quad
+                self._quad_key = None
+                self.update()
+
+        def setBorderRadius(self, px):
+            px = max(0, int(px or 0))
+            if px != self._border_radius:
+                self._border_radius = px
+                self.update()
 
         def setFrame(self, frame):
             if frame.isValid():
                 self._frame = frame
                 self.update()
 
+        def _quad_transform(self):
+            if self._quad is None:
+                return None
+            key = (self.width(), self.height(), tuple(self._quad))
+            if key != self._quad_key:
+                w, h = self.width(), self.height()
+                src = [
+                    (0.0, 0.0), (float(w), 0.0),
+                    (0.0, float(h)), (float(w), float(h)),
+                ]
+                self._quad_tf = _solve_homography(src, self._quad)
+                self._quad_key = key
+            return self._quad_tf
+
         def paintEvent(self, ev):
             p = QPainter(self)
-            p.fillRect(self.rect(), Qt.black)
+            radius = max(0, int(self._border_radius or 0))
+            tf = self._quad_transform()
             f = self._frame
-            if not f.isValid():
+            img = None
+            if f.isValid():
+                img = f.toImage()
+                if img.isNull():
+                    img = None
+            if tf is not None:
+                # Con deformacion: el background queda transparente y el
+                # video se dibuja en un canvas con las esquinas
+                # redondeadas (en el espacio del label) que luego se
+                # mapea al cuadrilatero (perspectiva).
+                canvas = QImage(
+                    self.width(), self.height(),
+                    QImage.Format_ARGB32_Premultiplied,
+                )
+                canvas.fill(Qt.transparent)
+                cp = QPainter(canvas)
+                if radius > 0:
+                    path = QPainterPath()
+                    path.addRoundedRect(
+                        QRectF(0, 0, canvas.width(), canvas.height()),
+                        radius, radius,
+                    )
+                    cp.setClipPath(path)
+                if img is not None:
+                    cp.setRenderHint(QPainter.SmoothPixmapTransform)
+                    cp.drawImage(
+                        QPointF(0, 0),
+                        img.scaled(
+                            self.width(), self.height(),
+                            Qt.IgnoreAspectRatio, Qt.SmoothTransformation,
+                        ),
+                    )
+                cp.end()
+                p.setRenderHint(QPainter.SmoothPixmapTransform)
+                p.setTransform(tf)
+                p.drawImage(QPointF(0, 0), canvas)
                 return
-            img = f.toImage()
-            if img.isNull():
+            if radius > 0:
+                # Rectangulo clasico con esquinas redondeadas: canvas con
+                # fondo negro redondeado y el video centrado (KeepAspect).
+                canvas = QImage(
+                    self.width(), self.height(),
+                    QImage.Format_ARGB32_Premultiplied,
+                )
+                canvas.fill(Qt.transparent)
+                cp = QPainter(canvas)
+                path = QPainterPath()
+                path.addRoundedRect(
+                    QRectF(0, 0, canvas.width(), canvas.height()),
+                    radius, radius,
+                )
+                cp.fillPath(path, Qt.black)
+                cp.setClipPath(path)
+                if img is not None:
+                    scaled_img = img.scaled(
+                        self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+                    )
+                    x = (self.width() - scaled_img.width()) // 2
+                    y = (self.height() - scaled_img.height()) // 2
+                    cp.drawImage(x, y, scaled_img)
+                cp.end()
+                p.drawImage(QPointF(0, 0), canvas)
+                return
+            # Comportamiento clasico: fondo negro y video centrado
+            p.fillRect(self.rect(), Qt.black)
+            if img is None:
                 return
             scaled_img = img.scaled(
                 self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
@@ -462,6 +602,7 @@ class VentanaArcade(QMainWindow):
         self._config_dialog.quit_signal.connect(self.quit)
         self._config_dialog.controls_requested.connect(self._open_controls_from_config)
         self._config_dialog.platforms_requested.connect(self._open_platform_editor)
+        self._config_dialog.rawg_key_saved.connect(self._on_rawg_key_saved)
         self._nav.register(self._config_dialog)
 
         # Cargar YA la config UI guardada: evita que el bloque de resolucion
@@ -779,20 +920,26 @@ class VentanaArcade(QMainWindow):
             return imgs[idx]
         return None
 
-    def _active_image_path_from(self, bg):
-        """Extrae la ruta de la imagen activa de un dict de background."""
+    def _active_image_entry_from(self, bg):
+        """Entrada activa (dict) de un background, con su ruta y ajustes."""
         if not isinstance(bg, dict):
-            return ""
+            return None
         imgs = bg.get("images") or []
+        if not imgs and bg.get("path"):
+            return {"path": bg.get("path", ""),
+                    "stretch": bool(bg.get("stretch", True)),
+                    "brightness": float(bg.get("brightness", 1.0) or 1.0)}
         idx = bg.get("active_image", -1)
         if isinstance(idx, int) and 0 <= idx < len(imgs):
             e = imgs[idx]
             if isinstance(e, dict) and e.get("path"):
-                return e["path"]
-        # Fallback: campo legacy 'path'
-        if bg.get("path"):
-            return bg["path"]
-        return ""
+                return e
+        return None
+
+    def _active_image_path_from(self, bg):
+        """Extrae la ruta de la imagen activa de un dict de background."""
+        e = self._active_image_entry_from(bg)
+        return e.get("path", "") if e else ""
 
     def _global_background_path(self):
         """Imagen de fondo elegida desde el config (Shift); prioridad maxima."""
@@ -850,15 +997,54 @@ class VentanaArcade(QMainWindow):
             path = self._global_background_path()
         return path
 
+    def _platform_bg_entry(self, cat):
+        """Entrada activa con ajustes (stretch/brightness) del fondo
+        per-plataforma del config (Shift), o None si la plataforma no tiene
+        fondo propio ni ajustes definidos."""
+        if not isinstance(cat, dict):
+            return None
+        sys_id = cat.get("id", "")
+        dialog = getattr(self, "_config_dialog", None)
+        if not dialog or not sys_id:
+            return None
+        pb = dialog.config().get("platform_backgrounds", {}).get(sys_id, {})
+        return self._active_image_entry_from(pb)
+
+    def _emulator_bg_stretch(self, cat):
+        """Flag 'estirar al 100%' del fondo definido en el editor de plataformas.
+
+        Solo aplica cuando el fondo proviene de bg_image de config.json de ese
+        emulador (o de una subcategoria suya). Devuelve None si la plataforma
+        no define bg_image (el fondo sale de un layout o del global): en ese
+        caso no se toca el ajuste actual."""
+        if not isinstance(cat, dict) or not cat.get("bg_image", ""):
+            return None
+        sys_id = cat.get("id", "")
+        backend = getattr(self, "backend", None)
+        emus = getattr(backend, "config", {}).get("emulators", {}) if backend else {}
+        emu = emus.get(sys_id, {}) if isinstance(emus, dict) else {}
+        return bool((emu or {}).get("bg_stretch", True))
+
     def _set_platform_background(self, cat, fallback_wheel=True):
         """Aplica el fondo configurado de la plataforma al BackgroundWidget.
 
         Si no hay imagen configurada y fallback_wheel, usa la imagen wheel
         (comportamiento original). Retorna True si se aplico alguna imagen.
-        """
+        Cuando la plataforma tiene fondo propio (Shift, seccion FONDO
+        FANART), se aplican tambien sus ajustes: imagen al 100% del ancho y
+        alto de la ventana (stretch) y brillo. Si el fondo viene del editor
+        de plataformas (bg_image), se aplica su checkbox de estiramiento."""
         path = self._platform_background_path(cat)
         if path:
             self.bg.set_image(path)
+            e = self._platform_bg_entry(cat)
+            if e:
+                self.bg.set_stretch(bool(e.get("stretch", True)))
+                self.bg.set_brightness(float(e.get("brightness", 1.0) or 1.0))
+            else:
+                emu_stretch = self._emulator_bg_stretch(cat)
+                if emu_stretch is not None:
+                    self.bg.set_stretch(emu_stretch)
             return True
         if fallback_wheel and isinstance(cat, dict) and cat.get("wheel_img"):
             self.bg.set_image(cat["wheel_img"])
@@ -1065,31 +1251,40 @@ class VentanaArcade(QMainWindow):
         return out
 
     def _scale_factors(self):
-        """Factor de escala (x, y) entre la resolucion REAL del monitor y la base.
+        """Factor de escala (fx, fy) entre el area REAL que se ve y la base.
 
-        Se calcula contra el tamano de la pantalla donde esta la ventana
-        (no contra el tamano actual de la ventana), de modo que todo el
-        frontend se ajuste automaticamente a la resolucion del monitor
-        tanto en Windows como en Linux, sea cual sea el screen (fila de
-        pantalla completa incluida), aunque la ventana aun no este mapeada.
+        Se usa el tamano real de la ventana (no el del monitor) para que en
+        modo ventana los elementos se reajusten tambien al ancho/alto que
+        realmente se ve en cada resolucion (1920, 720, 640...). En pantalla
+        completa la ventana coincide con el monitor, asi que el
+        comportamiento es el mismo. Hasta que la ventana no esta visible se
+        cae al monitor (la ventana aun no esta mapeada).
+
+        Se devuelve un factor UNIFORME (fx == fy) calculado para encajar la
+        resolucion base completa dentro del area real: asi las proporciones
+        de todos los elementos (rueda, video, snap, paneles, fuentes) se
+        mantienen sin distorsion cuando cambian la resolucion o la
+        proporcion de la pantalla.
         """
         base = getattr(self, "_resolucion_base", None)
-        if not (isinstance(base, list) and len(base) == 2 and base[0] and base[1]):
+        if isinstance(base, list) and len(base) == 2 and base[0] and base[1]:
+            bw, bh = int(base[0]), int(base[1])
+        else:
             bw, bh = 1920, 1080
+
+        if self.isVisible() and self.width() > 0 and self.height() > 0:
+            cw, ch = self.width(), self.height()
         else:
-            bw, bh = base
-        scr = self.screen()
-        if scr is None:
-            scr = QApplication.primaryScreen()
-        if scr is None:
-            cw, ch = 1920, 1080
-        else:
-            geom = scr.geometry()
-            if geom.width() <= 0 or geom.height() <= 0:
-                cw, ch = 1920, 1080
-            else:
+            scr = self.screen() or QApplication.primaryScreen()
+            if scr is not None:
+                geom = scr.geometry()
                 cw, ch = geom.width(), geom.height()
-        return max(cw / float(bw), 0.01), max(ch / float(bh), 0.01)
+            else:
+                cw, ch = 1920, 1080
+        if cw <= 0 or ch <= 0:
+            cw, ch = 1920, 1080
+        s = min(float(cw) / bw, float(ch) / bh)
+        return max(s, 0.01), max(s, 0.01)
 
     def _rect_stored_to_real(self, d):
         """Coordenadas guardadas -> pixeles reales de esta pantalla."""
@@ -1100,6 +1295,15 @@ class VentanaArcade(QMainWindow):
         for k, f in (("x", fx), ("y", fy), ("w", fx), ("h", fy)):
             if k in r:
                 r[k] = round(r[k] * f)
+        if "border_radius" in r:
+            r["border_radius"] = round(r["border_radius"] * fx)
+        corners = d.get("corners")
+        if isinstance(corners, dict):
+            rc = {}
+            for ck, cv in corners.items():
+                if isinstance(cv, (list, tuple)) and len(cv) >= 2:
+                    rc[ck] = [round(cv[0] * fx), round(cv[1] * fy)]
+            r["corners"] = rc
         return r
 
     def _rect_real_to_stored(self, d):
@@ -1111,6 +1315,18 @@ class VentanaArcade(QMainWindow):
         for k, f in (("x", fx), ("y", fy), ("w", fx), ("h", fy)):
             if k in r and f > 0:
                 r[k] = round(r[k] / f)
+        if "border_radius" in r and fx > 0:
+            r["border_radius"] = round(r["border_radius"] / fx)
+        corners = d.get("corners")
+        if isinstance(corners, dict):
+            rc = {}
+            for ck, cv in corners.items():
+                if isinstance(cv, (list, tuple)) and len(cv) >= 2:
+                    rc[ck] = [
+                        round(cv[0] / fx) if fx > 0 else cv[0],
+                        round(cv[1] / fy) if fy > 0 else cv[1],
+                    ]
+            r["corners"] = rc
         return r
 
     def _effective_video(self):
@@ -1148,6 +1364,29 @@ class VentanaArcade(QMainWindow):
             self._config_dialog.set_section("snap_pos", v)
         except Exception as e:
             print(f"[Snap] Error al sincronizar config: {e}")
+
+    def _refresh_current_snap(self, snap_real=None):
+        """Re-renderiza el snap del ROM actual (imagen o video) con su
+        deformacion actualizada.
+
+        snap_real: config snap_pos en pixeles reales (opcional). SI se pasa,
+        se usa tal cual para la preview en vivo (evita doble escalado)."""
+        if self._mode != "roms" or not getattr(self, "wheel", None):
+            return
+        item = self.wheel.current_item()
+        path = item.meta.get("snap", "") if item and isinstance(item.meta, dict) else ""
+        ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
+        if path and ext in {"mp4", "avi", "mkv", "webm", "mov"}:
+            # Video: si se esta reproduciendo alineado al snap, actualizar
+            # posicion y deformacion (perspectiva) en vivo
+            vw = getattr(self, "_video_widget", None)
+            if vw is not None and not vw.isHidden():
+                v = self._effective_video() or {}
+                if not v.get("fixed", False):
+                    self._align_video_to_snap()
+            return
+        if path:
+            self._show_snap(path, snap_real)
 
     def _snap_scale(self):
         """Factor de escala (%) de la seccion SNAP del config, como fraccion."""
@@ -1393,6 +1632,8 @@ class VentanaArcade(QMainWindow):
         if v.get("fixed", False):
             scale = float(v.get("scale", 100)) / 100.0
             vw.setGeometry(v["x"], v["y"], round(v["w"] * scale), round(v["h"] * scale))
+            vw.setQuad(None)
+            vw.setBorderRadius(v.get("border_radius", 0) or 0)
         else:
             self._align_video_to_snap()
 
@@ -1403,6 +1644,9 @@ class VentanaArcade(QMainWindow):
         self._video_widget.setGeometry(
             esquina.x(), esquina.y(), caja.width(), caja.height()
         )
+        self._video_widget.setQuad(self._snap_quad())
+        v = self._effective_video() or {}
+        self._video_widget.setBorderRadius(v.get("border_radius", 0) or 0)
 
     # === Datos ===
 
@@ -1503,7 +1747,7 @@ class VentanaArcade(QMainWindow):
         sorted_roms = sorted(roms, key=lambda r: r.get("name", "").lower())
         for i, rom in enumerate(sorted_roms):
             img = rom.get("image", "")
-            items.append(WheelItem(i, rom.get("name", ""), img, meta=rom))
+            items.append(WheelItem(i, game_display_name(rom), img, meta=rom))
         self.wheel.set_items(items)
         if items:
             # Restaurar el ultimo juego seleccionado en esta plataforma
@@ -1612,6 +1856,12 @@ class VentanaArcade(QMainWindow):
         if data:
             rom.update(data)
             rom["_info_scraped"] = True
+        # Refrescar el nombre del item en la rueda si el scrapeo lo mejoro
+        if self._mode == "roms":
+            for wi in self.wheel.items:
+                if wi.meta is rom:
+                    wi.name = game_display_name(rom)
+                    break
         # Refrescar panel solo si esa ROM sigue seleccionada
         item = self.wheel.current_item()
         if item and item.meta.get("file_path") == file_path:
@@ -1689,7 +1939,132 @@ class VentanaArcade(QMainWindow):
 
     # === Video ===
 
-    def _show_snap(self, path):
+    def _snap_transform(self):
+        """Matriz de transformacion del snap (skew/pinch/rotacion).
+
+        Fuente con prioridad: snap_pos del layout aplicado (per-plataforma) >
+        snap_pos global del config > seccion snap del config (Shift). Se
+        cachea hasta que cambian los valores."""
+        dialog = getattr(self, "_config_dialog", None)
+        sn = self._effective_snap() or {}
+        cfg_snap = dialog.config().get("snap", {}) if dialog else {}
+        def _v(key, default):
+            return float(sn.get(key, cfg_snap.get(key, default) or default))
+        key = (
+            _v("skew_x", 0), _v("skew_y", 0),
+            _v("pinch_x", 0), _v("pinch_y", 0), _v("rotation", 0),
+        )
+        if getattr(self, "_snap_tf_key", None) == key:
+            return self._snap_tf
+        # shear/percentiva primero, rotacion despues
+        base = QTransform(
+            1.0, math.tan(math.radians(key[0])), 0.0,          # m11 m12 m13 (skew_x)
+            math.tan(math.radians(key[1])), 1.0, 0.0,          # m21 m22 m23 (skew_y)
+            key[3] / 1000.0, key[2] / 1000.0, 1.0,             # m31 m32 m33 (pinch_y, pinch_x)
+        )
+        tf = QTransform()
+        tf.rotate(key[4])
+        tf = tf * base
+        self._snap_tf_key = key
+        self._snap_tf = tf
+        return tf
+
+    def _render_snap_transformed(self, img, tf):
+        """Aplica la transformacion centrada en la imagen y devuelve el
+        resultado recortado a su bounding box (sin perder bordes)."""
+        if tf is None or tf.isIdentity():
+            return img
+        src = QRectF(0, 0, img.width(), img.height())
+        m = (
+            QTransform().translate(img.width() / 2.0, img.height() / 2.0)
+            * tf
+            * QTransform().translate(-img.width() / 2.0, -img.height() / 2.0)
+        )
+        target = m.mapRect(src)
+        out = QImage(
+            max(1, int(math.ceil(target.width()))),
+            max(1, int(math.ceil(target.height()))),
+            QImage.Format_ARGB32_Premultiplied,
+        )
+        out.fill(Qt.transparent)
+        p = QPainter(out)
+        p.setTransform(QTransform().translate(-target.left(), -target.top()) * m)
+        p.setRenderHint(QPainter.SmoothPixmapTransform)
+        p.drawImage(QPointF(0, 0), img)
+        p.end()
+        return out
+
+    def _homography(self, src, dst):
+        """QTransform (proyectiva) que mapea los 4 puntos de src a los de dst."""
+        return _solve_homography(src, dst)
+
+    def _snap_quad(self, s=None):
+        """Esquinas destino (pixeles del label) para encajar el snap al TV.
+
+        Solo se activa con 'custom' activo y esquinas configuradas (con
+        algun offset distinto de cero). Devuelve None en caso contrario.
+
+        s: config snap_pos en pixeles reales. Si no se pasa, se obtiene de
+        la config efectiva (plataforma > global)."""
+        if s is None:
+            s = self._effective_snap() or {}
+        if not (bool(s.get("custom")) and all(k in s for k in ("x", "y", "w", "h"))):
+            return None
+        corners = s.get("corners")
+        if not isinstance(corners, dict):
+            return None
+        pares = [
+            corners.get("tl"), corners.get("tr"),
+            corners.get("bl"), corners.get("br"),
+        ]
+        def _pt(c):
+            if isinstance(c, (list, tuple)) and len(c) >= 2:
+                return [float(c[0]), float(c[1])]
+            return [0.0, 0.0]
+        tl, tr, bl, br = (_pt(c) for c in pares)
+        if not any(v for pair in (tl, tr, bl, br) for v in pair):
+            return None
+        w, h = float(s["w"]), float(s["h"])
+        quad = [
+            (tl[0], tl[1]),
+            (w + tr[0], tr[1]),
+            (bl[0], h + bl[1]),
+            (w + br[0], h + br[1]),
+        ]
+        if quad[0] == quad[1] == quad[2] == quad[3]:
+            return None
+        return quad
+
+    def _render_snap_quad(self, img, quad):
+        """Dibuja la imagen mapeada a las esquinas del label (WYSIWYG).
+
+        La imagen se estira al area del label y se deforma con la
+        homografia para quedar encajada exactamente en el cuadrilatero
+        configurado (la pantalla del TV)."""
+        lbl = self.info_panel.lbl_snap
+        cw, ch = lbl.width(), lbl.height()
+        if cw <= 0 or ch <= 0:
+            return img
+        src = [
+            (0.0, 0.0), (float(cw), 0.0),
+            (0.0, float(ch)), (float(cw), float(ch)),
+        ]
+        H = self._homography(src, quad)
+        if H is None:
+            return img
+        out = QImage(cw, ch, QImage.Format_ARGB32_Premultiplied)
+        out.fill(Qt.transparent)
+        p = QPainter(out)
+        p.setRenderHint(QPainter.SmoothPixmapTransform)
+        p.setTransform(H)
+        p.drawImage(
+            QPointF(0, 0),
+            img.scaled(cw, ch, Qt.IgnoreAspectRatio, Qt.SmoothTransformation),
+        )
+        p.end()
+        return out
+
+    def _show_snap(self, path, snap_real=None):
         if not path:
             self._stop_video()
             self.info_panel.lbl_snap.show()
@@ -1712,6 +2087,13 @@ class VentanaArcade(QMainWindow):
             if os.path.isfile(path):
                 img = QImage(path)
                 if not img.isNull():
+                    quad = self._snap_quad(snap_real)
+                    if quad is not None:
+                        img = self._render_snap_quad(img, quad)
+                    else:
+                        tf = self._snap_transform()
+                        if tf is not None and not tf.isIdentity():
+                            img = self._render_snap_transformed(img, tf)
                     scaled = img.scaled(
                         self.info_panel.lbl_snap.size(),
                         Qt.KeepAspectRatio, Qt.SmoothTransformation
@@ -1749,6 +2131,8 @@ class VentanaArcade(QMainWindow):
         v = self._effective_video()
         if v.get("fixed", False):
             self._video_widget.setGeometry(v["x"], v["y"], v["w"], v["h"])
+            self._video_widget.setQuad(None)
+            self._video_widget.setBorderRadius(v.get("border_radius", 0) or 0)
         else:
             # La caja del snap queda visible (estable) y el video la cubre
             self._align_video_to_snap()
@@ -1785,6 +2169,9 @@ class VentanaArcade(QMainWindow):
                 cfg = json.loads(raw)
                 # Pass platform context for per-platform backgrounds
                 self._config_dialog.set_platform(self._current_system)
+                self._config_dialog.set_emulators(self.backend.config)
+                rawg_key = (self.backend.config.get("rawg") or {}).get("api_key", "")
+                self._config_dialog.set_rawg_key(rawg_key)
                 self._config_dialog.load_config(cfg)
             except Exception as e:
                 print(f"[Config] Error al cargar: {e}")
@@ -1851,6 +2238,11 @@ class VentanaArcade(QMainWindow):
         if s.get("max_height"):
             scale = float(s.get("scale", 100)) / 100.0
             self.info_panel.lbl_snap.setFixedHeight(round(s["max_height"] * scale))
+        # Preview en vivo de skew/pinch/rotacion del snap
+        if self._mode == "roms" and getattr(self, "wheel", None):
+            tf = self._snap_transform()
+            if tf != getattr(self, "_snap_tf", None):
+                self._refresh_current_snap()
 
         # Video: aplicar en vivo (con preview aunque no haya reproduccion)
         self._apply_video_config(self._rect_stored_to_real(config.get("video") or {}))
@@ -1864,6 +2256,7 @@ class VentanaArcade(QMainWindow):
         if not v or not self._video_widget:
             return
         self._video_z = int(v.get("z", 0) or 0)
+        self._video_widget.setBorderRadius(v.get("border_radius", 0) or 0)
         reproduciendo = bool(
             self._media_player
             and self._media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState
@@ -1874,6 +2267,7 @@ class VentanaArcade(QMainWindow):
                 v.get("x", 30), v.get("y", 90),
                 round(v.get("w", 490) * scale), round(v.get("h", 368) * scale)
             )
+            self._video_widget.setQuad(None)
             # Si nada se reproduce, mostrar el rectangulo como guia de posicion
             if not reproduciendo:
                 self._video_widget.show()
@@ -2186,6 +2580,23 @@ class VentanaArcade(QMainWindow):
             self._platform_editor.raise_()
             self._platform_editor.activateWindow()
 
+    def _on_rawg_key_saved(self, key):
+        """Guarda la API key de RAWG en config.json y recarga el scraper."""
+        key = (key or "").strip()
+        try:
+            self.backend.config.setdefault("rawg", {})["api_key"] = key
+            self.backend.config["rawg"]["enabled"] = bool(key)
+            res = self.backend.save_config(json.dumps(self.backend.config))
+            print(f"[RAWG] Key guardada: {bool(key)} - {res}")
+        except Exception as e:
+            print(f"[RAWG] Error al guardar key: {e}")
+        # Recargar el scraper con la nueva config
+        try:
+            from scraper import scraper
+            scraper._load_from(self.backend.config)
+        except Exception as e:
+            print(f"[RAWG] Error al recargar scraper: {e}")
+
     def _on_platforms_changed(self):
         """Al cambiar las plataformas: guardar config y re-escaneo (debounce)."""
         try:
@@ -2194,6 +2605,11 @@ class VentanaArcade(QMainWindow):
         except Exception as e:
             print(f"[Plataformas] Error al guardar config: {e}")
             return
+        # Refrescar la lista de plataformas del scraper en el config dialog
+        try:
+            self._config_dialog.set_emulators(self.backend.config)
+        except Exception:
+            pass
         if getattr(self, "_rescan_platforms_timer", None) is None:
             self._rescan_platforms_timer = QTimer(self)
             self._rescan_platforms_timer.setSingleShot(True)
@@ -2316,11 +2732,16 @@ class VentanaArcade(QMainWindow):
 
     def _do_search(self):
         buf = self._search_buffer
-        for i, rom in enumerate(self._current_roms):
-            name = rom.get("name", "").upper()
-            if name.startswith(buf):
+
+        def _match_wheel(r):
+            """Empareja por el nombre visible (original_name o archivo)."""
+            rom = r.meta
+            return game_display_name(rom).upper().startswith(buf)
+
+        for i, wi in enumerate(self.wheel.items):
+            if _match_wheel(wi):
                 self.wheel.select_index(i)
-                count = sum(1 for r in self._current_roms if r.get("name", "").upper().startswith(buf))
+                count = sum(1 for w in self.wheel.items if _match_wheel(w))
                 self.top_bar.lbl_info.setText(tr("{n} encontrados", n=count))
                 return
         self.top_bar.lbl_info.setText(tr("Sin resultados"))

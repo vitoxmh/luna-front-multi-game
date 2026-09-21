@@ -32,10 +32,10 @@ images/**/*.bmp
 images/**/*.webp
 images/**/*
 # Excepciones: carpetas versionadas
-!images/personalizadas/
-!images/personalizadas/**
-!images/plataforma/
-!images/plataforma/**
+images/personalizadas/
+images/personalizadas/**
+images/plataforma/
+images/plataforma/**
 # Bytecode / caché de Python
 __pycache__/
 *.py[cod]
@@ -77,3 +77,4 @@ desktop.ini
 build
 dist
 cfg
+images/

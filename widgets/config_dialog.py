@@ -12,13 +12,16 @@ import os
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QColorDialog, QCheckBox, QComboBox, QWidget, QScrollArea, QFrame,
-    QGridLayout, QSpinBox, QDoubleSpinBox, QFileDialog
+    QGridLayout, QSpinBox, QDoubleSpinBox, QFileDialog, QAbstractSpinBox,
+    QProgressBar, QLineEdit
 )
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QObject, QRunnable, QThreadPool
 from PySide6.QtGui import QColor, QKeyEvent
 
 from i18n import tr, language_changed, set_language
 from widgets.platform_editor import PlatformEditor
+from scraper import scraper
+from scanner import load_scan, scan_roms
 
 
 DEFAULT_CONFIG = {
@@ -28,27 +31,112 @@ DEFAULT_CONFIG = {
               "central_scale": 1.4, "min_scale": 0.3, "item_width": 300, "item_height": 70},
     "background": {"blur": 12, "brightness": 0.25, "scale": 1.15, "use_snap": True,
               "images": [], "active_image": -1},
-    "snap": {"max_height": 180, "scale": 100},
+    "snap": {"max_height": 180, "scale": 100,
+             "skew_x": 0, "skew_y": 0, "pinch_x": 0, "pinch_y": 0, "rotation": 0},
     "info_panel": {"width": 320},
     "video": {"x": 30, "y": 90, "w": 490, "h": 368, "fixed": False, "scale": 100},
     "platform_backgrounds": {}
 }
 
 
+# ======================================================================
+# Paleta y estilos reutilizables del panel (evita estilos inline repetidos)
+# ======================================================================
+
+_BTN_PRIMARY = (
+    "QPushButton { background: qlineargradient(x1:0,y1:0,x2:0,y2:1, "
+    "stop:0 #ff8a3d, stop:1 #d94f00); color: #ffffff; font-weight: 700; "
+    "border: none; border-radius: 8px; padding: 10px 26px; font-size: 13px; }"
+    "QPushButton:hover { background: qlineargradient(x1:0,y1:0,x2:0,y2:1, "
+    "stop:0 #ffa156, stop:1 #e85a00); }"
+    "QPushButton:pressed { background: #b34700; }"
+)
+_BTN_DANGER = (
+    "QPushButton { background: qlineargradient(x1:0,y1:0,x2:0,y2:1, "
+    "stop:0 #ff5c5c, stop:1 #c22e2e); color: #ffffff; font-weight: 700; "
+    "border: none; border-radius: 8px; padding: 10px 22px; font-size: 13px; }"
+    "QPushButton:hover { background: #ff6f6f; }"
+    "QPushButton:pressed { background: #992323; }"
+)
+_BTN_GHOST = (
+    "QPushButton { background: #1c1c38; color: #c6cbe8; border: 1px solid #34345c; "
+    "border-radius: 8px; padding: 9px 20px; font-size: 12px; font-weight: 600; }"
+    "QPushButton:hover { background: #26264a; border-color: #ff6600; color: #ffffff; }"
+    "QPushButton:pressed { background: #15152c; }"
+)
+_BTN_ACCENT = (
+    "QPushButton { background: rgba(255, 102, 0, 0.08); color: #ff8a3d; "
+    "border: 1px solid #ff6600; border-radius: 8px; padding: 9px 18px; "
+    "font-size: 12px; font-weight: 700; }"
+    "QPushButton:hover { background: rgba(255, 102, 0, 0.16); color: #ffb37a; }"
+    "QPushButton:pressed { background: rgba(255, 102, 0, 0.28); }"
+)
+_BTN_ROUND = (
+    "QPushButton { background: #26264a; color: #c6cbe8; border: 1px solid #34345c; "
+    "border-radius: 14px; font-size: 15px; font-weight: 700; }"
+    "QPushButton:hover { background: #34345c; color: #ffffff; border-color: #ff6600; }"
+    "QPushButton:pressed { background: #1c1c38; }"
+)
+_COMBO_STYLE = (
+    "QComboBox { background: #1b1b38; color: #e8eaf4; border: 1px solid #34345c; "
+    "border-radius: 7px; padding: 6px 10px; font-size: 12px; }"
+    "QComboBox:hover { border-color: #ff6600; }"
+    "QComboBox::drop-down { border: none; width: 24px; }"
+    "QComboBox::down-arrow { image: none; border-left: 4px solid transparent; "
+    "border-right: 4px solid transparent; border-top: 5px solid #9aa3c2; }"
+    "QComboBox QAbstractItemView { background: #1b1b38; color: #e8eaf4; "
+    "selection-background-color: #ff6600; selection-color: #ffffff; "
+    "border: 1px solid #34345c; outline: none; }"
+)
+_CHECK_STYLE = (
+    "QCheckBox { color: #c6cbe8; font-size: 12px; spacing: 8px; background: transparent; }"
+    "QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #34345c; "
+    "border-radius: 4px; background: #1b1b38; }"
+    "QCheckBox::indicator:hover { border-color: #ff6600; }"
+    "QCheckBox::indicator:checked { background: #ff6600; border-color: #ff6600; }"
+)
+_SPIN_STYLE = (
+    "QSpinBox, QDoubleSpinBox { background: #1b1b38; color: #e8eaf4; "
+    "border: 1px solid #34345c; border-radius: 7px; padding: 4px 8px; font-size: 12px; }"
+    "QSpinBox:focus, QDoubleSpinBox:focus { border-color: #00ccff; }"
+    "QSpinBox::up-button, QDoubleSpinBox::up-button, "
+    "QSpinBox::down-button, QDoubleSpinBox::down-button { width: 16px; "
+    "background: transparent; border: none; }"
+    "QSpinBox::up-arrow, QDoubleSpinBox::up-arrow { image: none; "
+    "border-left: 4px solid transparent; border-right: 4px solid transparent; "
+    "border-bottom: 5px solid #9aa3c2; }"
+    "QSpinBox::down-arrow, QDoubleSpinBox::down-arrow { image: none; "
+    "border-left: 4px solid transparent; border-right: 4px solid transparent; "
+    "border-top: 5px solid #9aa3c2; }"
+)
+
+
 class ColorButton(QPushButton):
-    """Boton que abre un selector de color."""
+    """Boton swatch que abre un selector de color y muestra el hex."""
 
     def __init__(self, color="#ffffff", parent=None):
         super().__init__(parent)
         self._color = QColor(color)
-        self.setFixedSize(50, 28)
+        self.setFixedSize(100, 30)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setToolTip(tr("Seleccionar color"))
         self._update_style()
         self.clicked.connect(self._pick)
 
     def _update_style(self):
+        c = self._color.name()
+        self.setText(c.upper())
         self.setStyleSheet(
-            f"background-color: {self._color.name()}; border: 1px solid #555; border-radius: 4px;"
+            f"QPushButton {{ background-color: {c}; color: {self._text_color()}; "
+            f"border: 2px solid rgba(255,255,255,0.12); border-radius: 7px; "
+            f"font-size: 10px; font-weight: 700; padding: 0; letter-spacing: 1px; }}"
+            f"QPushButton:hover {{ border-color: #ff6600; }}"
         )
+
+    def _text_color(self):
+        c = self._color
+        lum = (0.299 * c.red() + 0.587 * c.green() + 0.114 * c.blue()) / 255.0
+        return "#0d0d1a" if lum > 0.6 else "#ffffff"
 
     def _pick(self):
         c = QColorDialog.getColor(self._color, self, tr("Seleccionar color"))
@@ -64,6 +152,73 @@ class ColorButton(QPushButton):
         self._update_style()
 
 
+class _PlatformScrapeSignals(QObject):
+    """Señales del worker de scraping por plataforma."""
+    started = Signal(int)            # total de ROMs
+    progress = Signal(int, int, str)   # (actual, total, nombre_rom)
+    finished = Signal(int, int)        # (obtenidos, total)
+
+
+class PlatformScrapeWorker(QRunnable):
+    """Scrapea la info de todos los juegos de una plataforma fuera del hilo
+    GUI y reporta progreso por ROM procesada. La lista de ROMs se resuelve
+    en el propio worker para no bloquear la interfaz."""
+
+    def __init__(self, emulator_id, emulator_config):
+        super().__init__()
+        self.emulator_id = emulator_id
+        self.emulator_config = emulator_config
+        self._cancel = False
+        self.signals = _PlatformScrapeSignals()
+
+    def cancel(self):
+        self._cancel = True
+
+    def _rom_names(self):
+        """Nombres de ROM de la plataforma: cache romslist o escaneo directo."""
+        try:
+            data = load_scan()
+            if data and self.emulator_id in data:
+                names = []
+                for system in data[self.emulator_id]:
+                    names.extend(rom.name for rom in getattr(system, "roms", []))
+                if names:
+                    return names
+        except Exception as e:
+            print(f"[Scrape] load_scan fallo: {e}")
+        if not self.emulator_config:
+            return []
+        try:
+            results = scan_roms({"emulators": {self.emulator_id: self.emulator_config}})
+            names = []
+            for system in results.get(self.emulator_id, []):
+                names.extend(rom.name for rom in getattr(system, "roms", []))
+            return names
+        except Exception as e:
+            print(f"[Scrape] scan_roms fallo: {e}")
+            return []
+
+    def run(self):
+        names = self._rom_names()
+        total = len(names)
+        if total == 0:
+            self.signals.finished.emit(0, 0)
+            return
+        self.signals.started.emit(total)
+        obtenidos = 0
+        for i, name in enumerate(names, start=1):
+            if self._cancel:
+                break
+            try:
+                info = scraper.get_info(name, self.emulator_id)
+                if info and (info.genre or info.year or info.manufacturer):
+                    obtenidos += 1
+            except Exception as e:
+                print(f"[Scrape {self.emulator_id}] Error con '{name}': {e}")
+            self.signals.progress.emit(i, total, name)
+        self.signals.finished.emit(obtenidos, total)
+
+
 class ConfigDialog(QDialog):
     """Administrador de configuracion: campos editables + aplicacion en vivo."""
 
@@ -73,14 +228,16 @@ class ConfigDialog(QDialog):
     quit_signal = Signal()
     controls_requested = Signal()  # El usuario pidio configurar los botones
     platforms_requested = Signal()  # El usuario pidio gestionar plataformas
+    rawg_key_saved = Signal(str)   # El usuario guardo la API key de RAWG
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Administrador de Configuracion")
-        self.setMinimumSize(520, 560)
+        self.setMinimumSize(620, 640)
         self.setModal(False)
         # Nunca quedar detras de la ventana principal en pantalla completa
         self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
+        self.setStyleSheet("QDialog { background: #0d0d1a; }")
 
         self._config = json.loads(json.dumps(DEFAULT_CONFIG))
         self._spins = {}
@@ -91,6 +248,12 @@ class ConfigDialog(QDialog):
         self._ui_texts = []      # (widget, key) para retraduccion en vivo
         self._ui_combos = []     # (combo, [keys...]) items traducibles
         self._ui_tooltips = []   # (widget, key)
+
+        # Scraping por plataforma
+        self._scrape_pool = QThreadPool(self)
+        self._scrape_pool.setMaxThreadCount(1)
+        self._scrape_worker = None
+        self._scrape_emulators = {}  # id -> config del emulador (config.json)
 
         self._build_ui()
         language_changed().connect(self.retranslate)
@@ -130,45 +293,50 @@ class ConfigDialog(QDialog):
     def _build_ui(self):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        # Encabezado "hero" con la wordmark LUNA
+        main_layout.addWidget(self._hero_header())
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("QScrollArea { border: none; background: #0a0a12; }")
+        scroll.setStyleSheet(
+            "QScrollArea { border: none; background: transparent; }"
+            "QScrollArea > QWidget > QWidget { background: transparent; }"
+        )
 
         container = QWidget()
-        container.setStyleSheet("background: #0a0a12;")
+        container.setAttribute(Qt.WA_StyledBackground, True)
+        container.setStyleSheet(
+            "background: qlineargradient(x1:0,y1:0,x2:0,y2:1, "
+            "stop:0 #12122a, stop:1 #0a0a16);"
+        )
         grid = QVBoxLayout(container)
-        grid.setSpacing(12)
-        grid.setContentsMargins(20, 16, 20, 10)
-
-        hint = QLabel("Edita cualquier valor: se aplica en vivo. 'Guardar' lo persiste.")
-        hint.setStyleSheet("color: #777; font-size: 11px;")
-        self._register_text(hint, "Edita cualquier valor: se aplica en vivo. 'Guardar' lo persiste.")
-        grid.addWidget(hint)
+        grid.setSpacing(16)
+        grid.setContentsMargins(20, 18, 20, 16)
 
         # === Idioma ===
-        grid.addWidget(self._section_label("IDIOMA"))
+        grid.addWidget(self._section_label("IDIOMA", "▲"))
         lang_frame = self._make_frame()
         lang_layout = QHBoxLayout(lang_frame)
         lbl_lang = QLabel("Idioma")
         lbl_lang.setFixedWidth(105)
-        lbl_lang.setStyleSheet("color: #ccc; font-size: 12px;")
+        lbl_lang.setStyleSheet("color: #b8c0d8; font-size: 12px;")
         self._register_text(lbl_lang, "Idioma")
         self._cmb_language = QComboBox()
         self._cmb_language.addItems(["Espanol", "English"])
-        self._cmb_language.setStyleSheet(
-            "QComboBox { color: #fff; background: #1a1a2e; padding: 4px; "
-            "border-radius: 4px; font-size: 12px; }"
-        )
+        self._cmb_language.setStyleSheet(_COMBO_STYLE)
         self._cmb_language.currentIndexChanged.connect(self._language_changed)
         lang_layout.addWidget(lbl_lang)
         lang_layout.addWidget(self._cmb_language, 1)
         grid.addWidget(lang_frame)
 
         # === Colores ===
-        grid.addWidget(self._section_label("COLORES"))
+        grid.addWidget(self._section_label("COLORES", "●"))
         colors_frame = self._make_frame()
         colors_layout = QGridLayout(colors_frame)
+        colors_layout.setHorizontalSpacing(14)
+        colors_layout.setVerticalSpacing(10)
         color_names = [
             ("background", "Fondo"), ("text", "Texto"), ("selected", "Seleccionado"),
             ("accent", "Acento"), ("text_dim", "Texto Dim"), ("border", "Borde")
@@ -178,8 +346,9 @@ class ConfigDialog(QDialog):
             w = QWidget()
             wl = QVBoxLayout(w)
             wl.setSpacing(4)
+            wl.setContentsMargins(0, 0, 0, 0)
             l = QLabel(label)
-            l.setStyleSheet("color: #aaa; font-size: 11px;")
+            l.setStyleSheet("color: #9aa3c2; font-size: 11px;")
             self._register_text(l, label)
             btn = ColorButton(self._config["colors"][key])
             btn.setFixedWidth(100)
@@ -190,10 +359,10 @@ class ConfigDialog(QDialog):
         grid.addWidget(colors_frame)
 
         # === Rueda ===
-        grid.addWidget(self._section_label("RUEDA"))
+        grid.addWidget(self._section_label("RUEDA", "◭"))
         wheel_frame = self._make_frame()
         wheel_layout = QGridLayout(wheel_frame)
-        wheel_layout.setSpacing(8)
+        wheel_layout.setSpacing(10)
 
         wheel_params = [
             ("visible_items", "Items visibles", 5, 25, 1, 0),
@@ -214,7 +383,7 @@ class ConfigDialog(QDialog):
         grid.addWidget(wheel_frame)
 
         # === Fondo ===
-        grid.addWidget(self._section_label("FONDO FANART"))
+        grid.addWidget(self._section_label("FONDO FANART", "◉"))
         bg_frame = self._make_frame()
         bg_layout = QGridLayout(bg_frame)
 
@@ -233,7 +402,7 @@ class ConfigDialog(QDialog):
         modo_row = QHBoxLayout()
         lbl_mode = QLabel("Fondo en juegos")
         lbl_mode.setFixedWidth(105)
-        lbl_mode.setStyleSheet("color: #ccc; font-size: 12px;")
+        lbl_mode.setStyleSheet("color: #b8c0d8; font-size: 12px;")
         self._register_text(lbl_mode, "Fondo en juegos")
         self._cmb_bg_mode = QComboBox()
         self._cmb_bg_mode.setToolTip(
@@ -244,10 +413,7 @@ class ConfigDialog(QDialog):
         self._register_tooltip(self._cmb_bg_mode, "Lo que se ve de fondo al navegar los juegos de una plataforma:\n- Snap del juego (si no tiene, el fondo de la plataforma)\n- Fondo de la plataforma (si no tiene, la imagen activa de esta lista)")
         self._cmb_bg_mode.addItems(["Snap del juego", "Imagen de fondo"])
         self._ui_combos.append((self._cmb_bg_mode, ["Snap del juego", "Imagen de fondo"]))
-        self._cmb_bg_mode.setStyleSheet(
-            "QComboBox { color: #fff; background: #1a1a2e; padding: 4px; "
-            "border-radius: 4px; font-size: 11px; }"
-        )
+        self._cmb_bg_mode.setStyleSheet(_COMBO_STYLE)
         modo_row.addWidget(lbl_mode)
         modo_row.addWidget(self._cmb_bg_mode, 1)
         bg_layout.addLayout(modo_row, 1, 0, 1, 3)
@@ -258,31 +424,20 @@ class ConfigDialog(QDialog):
         self._cmb_background = QComboBox()
         self._cmb_background.setToolTip("Imagen de fondo activa")
         self._register_tooltip(self._cmb_background, "Imagen de fondo activa")
-        self._cmb_background.setStyleSheet(
-            "QComboBox { color: #fff; background: #1a1a2e; padding: 4px; "
-            "border-radius: 4px; font-size: 11px; }"
-        )
+        self._cmb_background.setStyleSheet(_COMBO_STYLE)
         img_row.addWidget(self._cmb_background, 1)
         btn_add = QPushButton("+")
-        btn_add.setFixedWidth(32)
+        btn_add.setFixedSize(28, 26)
         btn_add.setToolTip("Agregar imagen(es)...")
         self._register_tooltip(btn_add, "Agregar imagen(es)...")
-        btn_add.setStyleSheet(
-            "QPushButton { background: #26263a; color: #ddd; padding: 4px 10px; "
-            "border-radius: 4px; font-size: 12px; }"
-            "QPushButton:hover { background: #343452; }"
-        )
+        btn_add.setStyleSheet(_BTN_ROUND)
         btn_add.clicked.connect(self._add_background_images)
         img_row.addWidget(btn_add)
         btn_del = QPushButton("-")
-        btn_del.setFixedWidth(32)
+        btn_del.setFixedSize(28, 26)
         btn_del.setToolTip("Quitar la imagen seleccionada")
         self._register_tooltip(btn_del, "Quitar la imagen seleccionada")
-        btn_del.setStyleSheet(
-            "QPushButton { background: #333; color: #aaa; padding: 4px 10px; "
-            "border-radius: 4px; font-size: 12px; }"
-            "QPushButton:hover { background: #444; color: #fff; }"
-        )
+        btn_del.setStyleSheet(_BTN_ROUND)
         btn_del.clicked.connect(self._remove_background_image)
         img_row.addWidget(btn_del)
         bg_layout.addLayout(img_row, 2, 0, 1, 3)
@@ -295,13 +450,13 @@ class ConfigDialog(QDialog):
         bg_layout.addWidget(w_brillo, 3, 0, 1, 3)
 
         self._chk_stretch = QCheckBox("Imagen ajustada al ancho y alto de la ventana")
-        self._chk_stretch.setStyleSheet("color: #ccc; font-size: 12px;")
+        self._chk_stretch.setStyleSheet(_CHECK_STYLE)
         self._register_text(self._chk_stretch, "Imagen ajustada al ancho y alto de la ventana")
         bg_layout.addWidget(self._chk_stretch, 4, 0, 1, 3)
         grid.addWidget(bg_frame)
 
         # === Snap ===
-        grid.addWidget(self._section_label("SNAP"))
+        grid.addWidget(self._section_label("SNAP", "▣"))
         snap_frame = self._make_frame()
         snap_layout = QGridLayout(snap_frame)
         w, spin = self._make_spin("Alto max", 80, 600, self._config["snap"]["max_height"], 10, 0)
@@ -310,10 +465,22 @@ class ConfigDialog(QDialog):
         w, spin = self._make_spin("Escala", 25, 300, self._config["snap"]["scale"], 5, 0)
         self._spins["snap.scale"] = spin
         snap_layout.addWidget(w, 0, 1)
+
+        snap_tf_params = [
+            ("skew_x", "Skew X", -90, 90, 1),
+            ("skew_y", "Skew Y", -90, 90, 1),
+            ("pinch_x", "Pinch X", -100, 100, 1),
+            ("pinch_y", "Pinch Y", -100, 100, 1),
+            ("rotation", "Rotacion", -180, 180, 1),
+        ]
+        for i, (key, label, mn, mx, step) in enumerate(snap_tf_params):
+            w, spin = self._make_spin(label, mn, mx, self._config["snap"][key], step, 0)
+            self._spins[f"snap.{key}"] = spin
+            snap_layout.addWidget(w, 1 + i // 2, i % 2)
         grid.addWidget(snap_frame)
 
         # === Video ===
-        grid.addWidget(self._section_label("VIDEO (posicion fija)"))
+        grid.addWidget(self._section_label("VIDEO (posicion fija)", "▶"))
         video_frame = self._make_frame()
         video_layout = QGridLayout(video_frame)
 
@@ -335,14 +502,14 @@ class ConfigDialog(QDialog):
         video_layout.addWidget(w, 2, 0, 1, 2)
 
         self._chk_fixed = QCheckBox("Usar posicion fija (si no, se alinea al snap)")
-        self._chk_fixed.setStyleSheet("color: #ccc; font-size: 12px;")
+        self._chk_fixed.setStyleSheet(_CHECK_STYLE)
         self._chk_fixed.setChecked(self._config["video"]["fixed"])
         self._register_text(self._chk_fixed, "Usar posicion fija (si no, se alinea al snap)")
         video_layout.addWidget(self._chk_fixed, 3, 0, 1, 2)
         grid.addWidget(video_frame)
 
         # === Resolucion ===
-        grid.addWidget(self._section_label("RESOLUCION"))
+        grid.addWidget(self._section_label("RESOLUCION", "☐"))
         res_frame = self._make_frame()
         res_layout = QVBoxLayout(res_frame)
 
@@ -355,36 +522,29 @@ class ConfigDialog(QDialog):
             "Automatica (pantalla completa)", "1920 x 1080", "1366 x 768",
             "1280 x 720", "2560 x 1440", "3840 x 2160 (4K)"
         ]))
-        self._cmb_resolution.setStyleSheet(
-            "color: #fff; background: #1a1a2e; padding: 6px; border-radius: 4px;"
-        )
+        self._cmb_resolution.setStyleSheet(_COMBO_STYLE)
         res_layout.addWidget(self._cmb_resolution)
 
         self._chk_fullscreen = QCheckBox("Pantalla completa")
         self._chk_fullscreen.setChecked(True)
-        self._chk_fullscreen.setStyleSheet("color: #ccc; font-size: 12px;")
+        self._chk_fullscreen.setStyleSheet(_CHECK_STYLE)
         self._register_text(self._chk_fullscreen, "Pantalla completa")
         res_layout.addWidget(self._chk_fullscreen)
 
         # === Botones (configuracion) ===
-        grid.addWidget(self._section_label("BOTONES"))
+        grid.addWidget(self._section_label("BOTONES", "⌨"))
         controls_frame = self._make_frame()
         ctrl_layout = QVBoxLayout(controls_frame)
 
         ctrl_hint = QLabel("Configura que botones/teclas navegan por los juegos, seleccionan y vuelven.")
-        ctrl_hint.setStyleSheet("color: #777; font-size: 11px;")
+        ctrl_hint.setStyleSheet("color: #9aa3c2; font-size: 11px;")
         ctrl_hint.setWordWrap(True)
         self._register_text(ctrl_hint, "Configura que botones/teclas navegan por los juegos, seleccionan y vuelven.")
         ctrl_layout.addWidget(ctrl_hint)
 
         btn_row_ctrl = QHBoxLayout()
         btn_ctrl = QPushButton("Configurar botones...")
-        btn_ctrl.setStyleSheet(
-            "QPushButton { background: #1a1a2e; color: #fff; padding: 10px 24px; "
-            "border: 1px solid #ff6600; border-radius: 6px; font-size: 13px; "
-            "font-weight: bold; }"
-            "QPushButton:hover { background: #2a1a0e; }"
-        )
+        btn_ctrl.setStyleSheet(_BTN_ACCENT)
         btn_ctrl.setToolTip("Abre el mapeo de botones del teclado y del gamepad")
         self._register_text(btn_ctrl, "Configurar botones...")
         self._register_tooltip(btn_ctrl, "Abre el mapeo de botones del teclado y del gamepad")
@@ -395,24 +555,19 @@ class ConfigDialog(QDialog):
         grid.addWidget(controls_frame)
 
         # === Plataformas ===
-        grid.addWidget(self._section_label("PLATAFORMAS"))
+        grid.addWidget(self._section_label("PLATAFORMAS", "▦"))
         platforms_frame = self._make_frame()
         plat_layout = QVBoxLayout(platforms_frame)
 
         plat_hint = QLabel("Agrega, edita o elimina plataformas/emuladores desde la interfaz.")
-        plat_hint.setStyleSheet("color: #777; font-size: 11px;")
+        plat_hint.setStyleSheet("color: #9aa3c2; font-size: 11px;")
         plat_hint.setWordWrap(True)
         self._register_text(plat_hint, "Agrega, edita o elimina plataformas/emuladores desde la interfaz.")
         plat_layout.addWidget(plat_hint)
 
         btn_row_plat = QHBoxLayout()
         btn_platforms = QPushButton("Gestionar plataformas...")
-        btn_platforms.setStyleSheet(
-            "QPushButton { background: #1a1a2e; color: #fff; padding: 10px 24px; "
-            "border: 1px solid #ff6600; border-radius: 6px; font-size: 13px; "
-            "font-weight: bold; }"
-            "QPushButton:hover { background: #2a1a0e; }"
-        )
+        btn_platforms.setStyleSheet(_BTN_ACCENT)
         btn_platforms.setToolTip("Abre el editor de plataformas para agregar, editar o eliminar emuladores")
         self._register_text(btn_platforms, "Gestionar plataformas...")
         self._register_tooltip(btn_platforms, "Abre el editor de plataformas para agregar, editar o eliminar emuladores")
@@ -422,54 +577,95 @@ class ConfigDialog(QDialog):
         plat_layout.addLayout(btn_row_plat)
         grid.addWidget(platforms_frame)
 
+        # === Scraper ===
+        grid.addWidget(self._section_label("SCRAPER", "⛏"))
+        scraper_frame = self._make_frame()
+        scraper_layout = QVBoxLayout(scraper_frame)
+
+        scraper_hint = QLabel("Obtiene la informacion de los juegos de una plataforma (anio, genero, fabricante). Los resultados se guardan en el cache.")
+        scraper_hint.setStyleSheet("color: #9aa3c2; font-size: 11px;")
+        scraper_hint.setWordWrap(True)
+        self._register_text(scraper_hint, "Obtiene la informacion de los juegos de una plataforma (anio, genero, fabricante). Los resultados se guardan en el cache.")
+        scraper_layout.addWidget(scraper_hint)
+
+        self._cmb_scrape_platform = QComboBox()
+        self._cmb_scrape_platform.setStyleSheet(_COMBO_STYLE)
+        self._cmb_scrape_platform.setToolTip("Selecciona la plataforma a scrapear")
+        self._register_tooltip(self._cmb_scrape_platform, "Selecciona la plataforma a scrapear")
+        scraper_layout.addWidget(self._cmb_scrape_platform)
+
+        # API key RAWG (gratuita en rawg.io/apidocs) para mejor calidad de info
+        rawg_row = QHBoxLayout()
+        rawg_lbl = QLabel("API key RAWG")
+        rawg_lbl.setFixedWidth(105)
+        rawg_lbl.setStyleSheet("color: #b8c0d8; font-size: 12px;")
+        self._register_text(rawg_lbl, "API key RAWG")
+        rawg_row.addWidget(rawg_lbl)
+        self._txt_rawg_key = QLineEdit()
+        self._txt_rawg_key.setPlaceholderText("Pega tu api_key gratuita...")
+        self._txt_rawg_key.setEchoMode(QLineEdit.Password)
+        self._txt_rawg_key.setStyleSheet(
+            "QLineEdit { background: #1b1b38; color: #e8eaf4; border: 1px solid #34345c; "
+            "border-radius: 7px; padding: 6px 10px; font-size: 12px; }"
+            "QLineEdit:focus { border-color: #00ccff; }"
+        )
+        self._txt_rawg_key.setToolTip("Obtener gratis en https://rawg.io/apidocs")
+        self._register_tooltip(self._txt_rawg_key, "Obtener gratis en https://rawg.io/apidocs")
+        rawg_row.addWidget(self._txt_rawg_key, 1)
+        btn_rawg = QPushButton("Guardar key")
+        btn_rawg.setStyleSheet(_BTN_ACCENT)
+        btn_rawg.setCursor(Qt.PointingHandCursor)
+        btn_rawg.clicked.connect(self._save_rawg_key)
+        self._register_text(btn_rawg, "Guardar key")
+        rawg_row.addWidget(btn_rawg)
+        scraper_layout.addLayout(rawg_row)
+
+        scrape_btn_row = QHBoxLayout()
+        self._btn_scrape_start = QPushButton("Scrapear juegos")
+        self._btn_scrape_start.setStyleSheet(_BTN_ACCENT)
+        self._register_text(self._btn_scrape_start, "Scrapear juegos")
+        self._btn_scrape_start.setToolTip("Lanza el scraping de todos los juegos de la plataforma seleccionada")
+        self._register_tooltip(self._btn_scrape_start, "Lanza el scraping de todos los juegos de la plataforma seleccionada")
+        self._btn_scrape_start.clicked.connect(self._start_scrape_platform)
+        scrape_btn_row.addWidget(self._btn_scrape_start)
+
+        self._btn_scrape_stop = QPushButton("Detener")
+        self._btn_scrape_stop.setStyleSheet(_BTN_GHOST)
+        self._btn_scrape_stop.setEnabled(False)
+        self._register_text(self._btn_scrape_stop, "Detener")
+        self._btn_scrape_stop.clicked.connect(self._stop_scrape_platform)
+        scrape_btn_row.addWidget(self._btn_scrape_stop)
+        scrape_btn_row.addStretch()
+        scraper_layout.addLayout(scrape_btn_row)
+
+        self._scrape_progress = QProgressBar()
+        self._scrape_progress.setRange(0, 100)
+        self._scrape_progress.setValue(0)
+        self._scrape_progress.setTextVisible(True)
+        self._scrape_progress.setStyleSheet(
+            "QProgressBar { background: #1b1b38; border: 1px solid #34345c; "
+            "border-radius: 7px; height: 18px; text-align: center; color: #e8eaf4; "
+            "font-size: 11px; }"
+            "QProgressBar::chunk { background: qlineargradient(x1:0,y1:0,x2:1,y2:0, "
+            "stop:0 #ff8a3d, stop:1 #d94f00); border-radius: 6px; }"
+        )
+        scraper_layout.addWidget(self._scrape_progress)
+
+        self._lbl_scrape_status = QLabel("Listo")
+        self._lbl_scrape_status.setStyleSheet("color: #b8c0d8; font-size: 11px;")
+        self._lbl_scrape_status.setWordWrap(True)
+        self._register_text(self._lbl_scrape_status, "Listo")
+        scraper_layout.addWidget(self._lbl_scrape_status)
+
+        grid.addWidget(scraper_frame)
+
         # === Botones (acciones) ===
-        btn_row = QHBoxLayout()
-        btn_row.addStretch()
-
-        btn_close = QPushButton("Cerrar")
-        btn_close.setStyleSheet(
-            "QPushButton { background: #333; color: #aaa; padding: 8px 24px; "
-            "border-radius: 4px; }"
-            "QPushButton:hover { background: #444; color: #fff; }"
-        )
-        btn_close.clicked.connect(self.close)
-        self._register_text(btn_close, "Cerrar")
-        btn_row.addWidget(btn_close)
-
-        btn_quit = QPushButton("Salir")
-        btn_quit.setStyleSheet(
-            "QPushButton { background: #cc0000; color: white; padding: 8px 24px; "
-            "border-radius: 4px; font-weight: bold; }"
-            "QPushButton:hover { background: #ff0000; }"
-        )
-        btn_quit.clicked.connect(self.quit_signal.emit)
-        self._register_text(btn_quit, "Salir")
-        btn_row.addWidget(btn_quit)
-
-        btn_restore = QPushButton("Restablecer")
-        btn_restore.setStyleSheet(
-            "QPushButton { background: #333; color: #aaa; padding: 8px 16px; border-radius: 4px; }"
-            "QPushButton:hover { background: #444; color: #fff; }"
-        )
-        btn_restore.clicked.connect(self._restore)
-        self._register_text(btn_restore, "Restablecer")
-        btn_row.addWidget(btn_restore)
-
-        btn_save = QPushButton("Guardar")
-        btn_save.setStyleSheet(
-            "QPushButton { background: #ff6600; color: white; padding: 8px 24px; "
-            "border-radius: 4px; font-weight: bold; }"
-            "QPushButton:hover { background: #ff8833; }"
-        )
-        btn_save.clicked.connect(self._save)
-        self._register_text(btn_save, "Guardar")
-        btn_row.addWidget(btn_save)
-
-        grid.addLayout(btn_row)
         grid.addStretch()
 
         scroll.setWidget(container)
-        main_layout.addWidget(scroll)
+        main_layout.addWidget(scroll, 1)
+
+        main_layout.addWidget(self._footer_bar())
 
         # Conectar controles para live update
         for key, spin in self._spins.items():
@@ -499,7 +695,7 @@ class ConfigDialog(QDialog):
 
         lbl = QLabel(label_text)
         lbl.setFixedWidth(105)
-        lbl.setStyleSheet("color: #ccc; font-size: 12px;")
+        lbl.setStyleSheet("color: #b8c0d8; font-size: 12px;")
         self._register_text(lbl, label_text)
         h.addWidget(lbl)
 
@@ -513,35 +709,145 @@ class ConfigDialog(QDialog):
             spin.setSingleStep(int(step))
             spin.setValue(int(value))
         spin.setRange(mn, mx)
-        spin.setMinimumWidth(90)
-        spin.setStyleSheet(
-            "QSpinBox, QDoubleSpinBox { background: #1a1a2e; color: #fff; "
-            "border: 1px solid #333; border-radius: 4px; padding: 3px 6px; "
-            "font-size: 12px; }"
-            "QSpinBox::up-button, QDoubleSpinBox::up-button,"
-            "QSpinBox::down-button, QDoubleSpinBox::down-button { width: 16px; }"
-        )
+        spin.setMinimumWidth(100)
+        spin.setStyleSheet(_SPIN_STYLE)
+        spin.setButtonSymbols(QAbstractSpinBox.UpDownArrows)
         spin.setKeyboardTracking(False)
         h.addWidget(spin)
         h.addStretch()
         return w, spin
 
-    def _section_label(self, text):
+    def _section_label(self, text, glyph=None):
+        """Encabezado de seccion: barra acento + icono + titulo en mayusculas."""
+        row = QWidget()
+        row.setStyleSheet("background: transparent;")
+        row.setFixedHeight(24)
+        h = QHBoxLayout(row)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(8)
+
+        bar = QLabel()
+        bar.setFixedSize(4, 16)
+        bar.setStyleSheet(
+            "background: qlineargradient(x1:0,y1:0,x2:0,y2:1, "
+            "stop:0 #ff8a3d, stop:1 #d94f00); border-radius: 2px;"
+        )
+        h.addWidget(bar)
+
+        if glyph:
+            gl = QLabel(glyph)
+            gl.setStyleSheet("color: #ff6600; font-size: 13px;")
+            gl.setFixedWidth(16)
+            h.addWidget(gl)
+
         lbl = QLabel(text)
         lbl.setStyleSheet(
-            "color: #ff6600; font-size: 13px; font-weight: bold; "
-            "padding: 4px 0; border-bottom: 1px solid #333;"
+            "color: #ff8a3d; font-size: 12px; font-weight: 800; "
+            "letter-spacing: 2px; padding: 0; border: none;"
         )
         self._register_text(lbl, text)
-        return lbl
+        h.addWidget(lbl)
+        h.addStretch()
+        return row
 
     def _make_frame(self):
         frame = QFrame()
         frame.setStyleSheet(
-            "QFrame { background: rgba(15, 15, 25, 0.85); border: 1px solid #222; "
-            "border-radius: 6px; padding: 8px; }"
+            "QFrame { background: rgba(23, 23, 47, 0.75); border: 1px solid #2c2c4e; "
+            "border-radius: 10px; padding: 10px; }"
         )
         return frame
+
+    def _hero_header(self):
+        """Wordmark LUNA + subtitulo persistente, fijo arriba del panel."""
+        hero = QWidget()
+        hero.setAttribute(Qt.WA_StyledBackground, True)
+        hero.setStyleSheet(
+            "background: qlineargradient(x1:0,y1:0,x2:1,y2:0, "
+            "stop:0 #12122a, stop:1 #0d0d1c);"
+        )
+        hero.setFixedHeight(78)
+        hl = QHBoxLayout(hero)
+        hl.setContentsMargins(24, 12, 24, 12)
+        hl.setSpacing(14)
+
+        badge = QLabel("L")
+        badge.setFixedSize(44, 44)
+        badge.setAlignment(Qt.AlignCenter)
+        badge.setStyleSheet(
+            "background: qlineargradient(x1:0,y1:0,x2:1,y2:1, "
+            "stop:0 #ff8a3d, stop:1 #d94f00); color: #ffffff; "
+            "font-size: 24px; font-weight: 900; border-radius: 10px;"
+        )
+        hl.addWidget(badge)
+
+        title_box = QWidget()
+        title_box.setStyleSheet("background: transparent;")
+        tl = QVBoxLayout(title_box)
+        tl.setContentsMargins(0, 0, 0, 0)
+        tl.setSpacing(2)
+        title = QLabel("LUNA")
+        title.setStyleSheet(
+            "color: #ff8a3d; font-size: 19px; font-weight: 900; "
+            "letter-spacing: 4px; background: transparent;"
+        )
+        self._register_text(title, "LUNA")
+        tl.addWidget(title)
+        sub = QLabel("Edita cualquier valor: se aplica en vivo. 'Guardar' lo persiste.")
+        sub.setStyleSheet("color: #9aa3c2; font-size: 11px; background: transparent;")
+        self._register_text(sub, "Edita cualquier valor: se aplica en vivo. 'Guardar' lo persiste.")
+        tl.addWidget(sub)
+        hl.addWidget(title_box)
+        hl.addStretch()
+
+        tag = QLabel("CONFIGURACION")
+        tag.setStyleSheet(
+            "color: #b8c0d8; font-size: 10px; font-weight: 700; "
+            "letter-spacing: 3px; background: rgba(255,255,255,0.04); "
+            "border: 1px solid #2c2c4e; border-radius: 6px; padding: 5px 10px;"
+        )
+        hl.addWidget(tag)
+        return hero
+
+    def _footer_bar(self):
+        """Acciones persistentes: Restablecer / Cerrar / Guardar / Salir."""
+        bar = QWidget()
+        bar.setAttribute(Qt.WA_StyledBackground, True)
+        bar.setStyleSheet(
+            "background: #0d0d1c; border-top: 1px solid #2c2c4e;"
+        )
+        bar.setFixedHeight(64)
+        bl = QHBoxLayout(bar)
+        bl.setContentsMargins(20, 10, 20, 10)
+        bl.setSpacing(10)
+
+        btn_restore = QPushButton("Restablecer")
+        btn_restore.setStyleSheet(_BTN_GHOST)
+        btn_restore.clicked.connect(self._restore)
+        self._register_text(btn_restore, "Restablecer")
+        bl.addWidget(btn_restore)
+        bl.addStretch()
+
+        btn_close = QPushButton("Cerrar")
+        btn_close.setStyleSheet(_BTN_GHOST)
+        btn_close.clicked.connect(self.close)
+        self._register_text(btn_close, "Cerrar")
+        bl.addWidget(btn_close)
+
+        btn_save = QPushButton("Guardar")
+        btn_save.setStyleSheet(_BTN_PRIMARY)
+        btn_save.setCursor(Qt.PointingHandCursor)
+        btn_save.clicked.connect(self._save)
+        self._register_text(btn_save, "Guardar")
+        bl.addWidget(btn_save)
+
+        btn_quit = QPushButton("Salir")
+        btn_quit.setStyleSheet(_BTN_DANGER)
+        btn_quit.setCursor(Qt.PointingHandCursor)
+        btn_quit.clicked.connect(self.quit_signal.emit)
+        self._register_text(btn_quit, "Salir")
+        bl.addWidget(btn_quit)
+        return bar
 
     # === Logica ===
 
@@ -682,6 +988,71 @@ class ConfigDialog(QDialog):
             return
         set_language("en" if idx == 1 else "es")
 
+    def set_emulators(self, config):
+        """Carga los emuladores de config.json en el combo del scraper."""
+        self._scrape_emulators = config.get("emulators", {}) if config else {}
+        prev = self._cmb_scrape_platform.currentData()
+        self._cmb_scrape_platform.blockSignals(True)
+        self._cmb_scrape_platform.clear()
+        for emu_id, emu_config in self._scrape_emulators.items():
+            name = emu_config.get("name", emu_id)
+            self._cmb_scrape_platform.addItem(name, emu_id)
+        if prev is not None:
+            idx = self._cmb_scrape_platform.findData(prev)
+            if idx >= 0:
+                self._cmb_scrape_platform.setCurrentIndex(idx)
+        self._cmb_scrape_platform.blockSignals(False)
+
+    def set_rawg_key(self, key):
+        """Precarga la API key de RAWG en el campo."""
+        self._rawg_key = key or ""
+        self._txt_rawg_key.setText(self._rawg_key)
+
+    def _save_rawg_key(self):
+        """Guarda la API key de RAWG en config.json y recarga el scraper."""
+        key = self._txt_rawg_key.text().strip()
+        self.rawg_key_saved.emit(key)
+
+    def _start_scrape_platform(self):
+        emu_id = self._cmb_scrape_platform.currentData()
+        if not emu_id:
+            return
+        emu_config = self._scrape_emulators.get(emu_id, {})
+        self._btn_scrape_start.setEnabled(False)
+        self._btn_scrape_stop.setEnabled(True)
+        self._scrape_progress.setRange(0, 100)
+        self._scrape_progress.setValue(0)
+        self._lbl_scrape_status.setText(tr("Scrapeando: {rom}...", rom=emu_config.get("name", emu_id)))
+        self._scrape_worker = PlatformScrapeWorker(emu_id, emu_config)
+        self._scrape_worker.signals.started.connect(self._on_scrape_started)
+        self._scrape_worker.signals.progress.connect(self._on_scrape_progress)
+        self._scrape_worker.signals.finished.connect(self._on_scrape_finished)
+        self._scrape_pool.start(self._scrape_worker)
+
+    def _stop_scrape_platform(self):
+        if self._scrape_worker is not None:
+            self._scrape_worker.cancel()
+            self._btn_scrape_stop.setEnabled(False)
+            self._lbl_scrape_status.setText(tr("Deteniendo..."))
+
+    def _on_scrape_started(self, total):
+        self._scrape_progress.setRange(0, total)
+        self._scrape_progress.setValue(0)
+        self._lbl_scrape_status.setText(tr("Scrapeando {n} juegos...", n=total))
+
+    def _on_scrape_progress(self, actual, total, name):
+        self._scrape_progress.setValue(actual)
+        self._lbl_scrape_status.setText(tr("Scrapeando: {rom} ({a}/{t})", rom=name, a=actual, t=total))
+
+    def _on_scrape_finished(self, obtenidos, total):
+        self._btn_scrape_start.setEnabled(True)
+        self._btn_scrape_stop.setEnabled(False)
+        if total:
+            self._scrape_progress.setValue(total)
+        self._lbl_scrape_status.setText(
+            tr("{o} de {t} juegos con info", o=obtenidos, t=total)
+        )
+
     def set_language_combo(self, lang):
         """Sincroniza el combo de idioma con 'es'|'en' sin disparar live."""
         self._building = True
@@ -748,6 +1119,10 @@ class ConfigDialog(QDialog):
         super().keyPressEvent(event)
 
     def closeEvent(self, event):
+        # Si hay un scraping en curso, pedir cancelacion al cerrar
+        if self._scrape_worker is not None:
+            self._scrape_worker.cancel()
+        self._scrape_pool.clear()
         self.config_closed.emit()
         super().closeEvent(event)
 

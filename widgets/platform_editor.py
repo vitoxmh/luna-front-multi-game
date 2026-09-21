@@ -12,7 +12,7 @@ from pathlib import Path
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QFileDialog, QListWidget, QListWidgetItem,
-    QFrame, QScrollArea, QMessageBox, QWidget, QComboBox
+    QFrame, QScrollArea, QMessageBox, QWidget, QComboBox, QCheckBox
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QKeyEvent
@@ -177,6 +177,32 @@ class PlatformEditor(QDialog):
             "Imagen de fondo", form_layout,
             file_filter=tr("Imagenes (*.png *.jpg *.jpeg *.webp *.bmp *.svg)")
         )
+
+        chk_row = QHBoxLayout()
+        chk_spacer = QLabel()
+        chk_spacer.setFixedWidth(105)
+        chk_row.addWidget(chk_spacer)
+        self._chk_bg_stretch = QCheckBox(
+            "Imagen adaptada al 100% del ancho y alto de la ventana"
+        )
+        self._chk_bg_stretch.setStyleSheet(
+            "QCheckBox { color: #ccc; font-size: 12px; spacing: 8px; background: transparent; }"
+            "QCheckBox::indicator { width: 15px; height: 15px; border: 1px solid #555; "
+            "border-radius: 3px; background: #1a1a2e; }"
+            "QCheckBox::indicator:hover { border-color: #ff6600; }"
+            "QCheckBox::indicator:checked { background: #ff6600; border-color: #ff6600; }"
+        )
+        self._chk_bg_stretch.setToolTip(
+            "Estira la imagen de fondo hasta llenar el 100% del ancho y alto "
+            "de la ventana (sin respetar la proporcion de la imagen)."
+        )
+        self._register_text(
+            self._chk_bg_stretch,
+            "Imagen adaptada al 100% del ancho y alto de la ventana"
+        )
+        chk_row.addWidget(self._chk_bg_stretch)
+        chk_row.addStretch()
+        form_layout.addLayout(chk_row)
 
         icon_row = QHBoxLayout()
         lbl_icon = QLabel("Icono")
@@ -455,6 +481,7 @@ class PlatformEditor(QDialog):
             emu_config["wheel_img"] = wheel_img
         if bg_image:
             emu_config["bg_image"] = bg_image
+            emu_config["bg_stretch"] = bool(self._chk_bg_stretch.isChecked())
 
         if "emulators" not in self._config:
             self._config["emulators"] = {}
@@ -482,6 +509,7 @@ class PlatformEditor(QDialog):
         self._txt_marquees_path.clear()
         self._txt_wheel_img.clear()
         self._txt_bg_image.clear()
+        self._chk_bg_stretch.setChecked(True)
         idx = self._cmb_icon.findText(self.ICONS.get("default", "Otro"))
         self._cmb_icon.setCurrentIndex(idx if idx >= 0 else 0)
         self._building = False
@@ -503,6 +531,7 @@ class PlatformEditor(QDialog):
         self._txt_marquees_path.setText(emu_config.get("marquees_path", ""))
         self._txt_wheel_img.setText(emu_config.get("wheel_img", ""))
         self._txt_bg_image.setText(emu_config.get("bg_image", ""))
+        self._chk_bg_stretch.setChecked(bool(emu_config.get("bg_stretch", True)))
         icon = emu_config.get("icon", "default")
         icon_text = self.ICONS.get(icon, "Otro")
         idx = self._cmb_icon.findText(icon_text)

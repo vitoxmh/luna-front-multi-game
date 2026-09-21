@@ -36,6 +36,26 @@ class GameInfo:
     source: str = ""
 
 
+def clean_rom_name(name: str) -> str:
+    """Normaliza el nombre de una ROM para la busqueda:
+    - guiones bajos -> espacios
+    - quita parentesis con tags de region/revision/numero: (USA), (Europe),
+      (Rev 1), (1992), (En,Fr,De), (v1.0), (Arcade)...
+    - quita sufijos numericos que no aportan y espacios duplicados.
+    """
+    clean = re.sub(r'[_]+', ' ', name or '')
+    # Quitar extensiones: .zip .smc .nes etc.
+    clean = re.sub(r'\.[a-z0-9]{1,4}\s*$', '', clean, flags=re.IGNORECASE)
+    # Parentesis: v1.2, rev X, regiones, idiomas, año, etc.
+    clean = re.sub(
+        r'\s*\([^)]*(?:usa|eur|europe|jap|japan|world|wld|rev\s*\d+|v\d+(?:\.\d+)?|ver\s*\d+|proto|beta|demo|set\s*\d+|\d{4}[a-z]?|arcade|snes|nes|genesis|smc|gb[ca]?\s*,?[^)]*)\)\s*',
+        ' ', clean, flags=re.IGNORECASE,
+    )
+    clean = re.sub(r'\s*\[[^\]]*\]\s*', ' ', clean)
+    clean = re.sub(r'\s+', ' ', clean).strip()
+    return clean
+
+
 class IGDBClient:
     """Cliente para IGDB API v4 (requiere Twitch credentials)."""
 
@@ -109,8 +129,7 @@ class RAWGClient:
         self.api_key = api_key
 
     def search_game(self, name: str) -> Optional[dict]:
-        clean_name = re.sub(r'[_]+', ' ', name)
-        clean_name = re.sub(r'\s+', ' ', clean_name).strip()
+        clean_name = clean_rom_name(name)
 
         params = urllib.parse.urlencode({
             "key": self.api_key,
@@ -178,23 +197,33 @@ class GameScraper:
             with open(config_path, "r", encoding="utf-8") as f:
                 config = json.load(f)
 
-            # IGDB
-            igdb_cfg = config.get("igdb", {})
-            if igdb_cfg.get("enabled") and igdb_cfg.get("client_id") and igdb_cfg.get("client_secret"):
-                self.igdb = IGDBClient(igdb_cfg["client_id"], igdb_cfg["client_secret"])
-                print("[Scraper] IGDB habilitado")
-
-            # RAWG
-            rawg_cfg = config.get("rawg", {})
-            if rawg_cfg.get("enabled") and rawg_cfg.get("api_key"):
-                self.rawg = RAWGClient(rawg_cfg["api_key"])
-                print("[Scraper] RAWG habilitado")
-
-            if not self.igdb and not self.rawg:
-                print("[Scraper] Sin API - usando Wikipedia como fallback")
+            self._load_from(config)
 
         except Exception as e:
             print(f"[Scraper] Error config: {e}")
+
+    def configure_with(self, client_id="", client_secret="", rawg_key=""):
+        """Configura las APIs en caliente (sin reiniciar el programa)."""
+        self.igdb = None
+        self.rawg = None
+        if client_id and client_secret:
+            self.igdb = IGDBClient(client_id, client_secret)
+            print("[Scraper] IGDB habilitado")
+        if rawg_key:
+            self.rawg = RAWGClient(rawg_key)
+            print("[Scraper] RAWG habilitado")
+        if not self.igdb and not self.rawg:
+            print("[Scraper] Sin API - usando Wikipedia como fallback")
+
+    def _load_from(self, config: dict):
+        """Lee las APIs desde un dict de config (config.json)."""
+        igdb_cfg = config.get("igdb", {})
+        rawg_cfg = config.get("rawg", {})
+        self.configure_with(
+            igdb_cfg.get("client_id", "") if igdb_cfg.get("enabled") else "",
+            igdb_cfg.get("client_secret", "") if igdb_cfg.get("enabled") else "",
+            rawg_cfg.get("api_key", "") if rawg_cfg.get("enabled") else "",
+        )
 
     def get_info(self, rom_name: str, emulator: str) -> GameInfo:
         cache_key = f"{emulator}:{rom_name}".lower()
@@ -272,17 +301,46 @@ class GameScraper:
     def _search_rawg(self, rom_name: str) -> GameInfo:
         info = GameInfo(name=rom_name, original_name=rom_name, source="rawg")
 
-        game = self.rawg.search_game(rom_name)
-        if not game:
-            return info
+        # Probar variantes del nombre hasta tener un resultado concreto
+        variants = self._name_variants(rom_name)
+        for variant in variants:
+            game = self.rawg.search_game(variant)
+            if game and self._rawg_matches(game, variant):
+                game_id = game.get("id")
+                if game_id:
+                    detail = self.rawg.get_detail(game_id)
+                    if detail:
+                        return self._parse_rawg(rom_name, detail)
+                return self._parse_rawg(rom_name, game)
+        return info
 
-        game_id = game.get("id")
-        if game_id:
-            detail = self.rawg.get_detail(game_id)
-            if detail:
-                return self._parse_rawg(rom_name, detail)
+    @staticmethod
+    def _name_variants(name: str) -> list:
+        """Variantes ordenadas por probabilidad de exito."""
+        cleaned = clean_rom_name(name)
+        variants = []
+        if cleaned:
+            variants.append(cleaned)
+        # Quitar sub-titulos tras dos puntos / guion largo
+        for sep in (":", " - ", " – "):
+            if sep in cleaned:
+                variants.append(cleaned.split(sep)[0].strip())
+                break
+        # Ultima palabra (probable sub-titulo)
+        words = cleaned.split()
+        if len(words) > 2 and words[-1].lower() in (
+            "edition", "collection", "complete", "deluxe", "remastered",
+            "remake", "ultimate", "gold", "platinum", "special",
+        ):
+            variants.append(" ".join(words[:-1]))
+        return variants
 
-        return self._parse_rawg(rom_name, game)
+    @staticmethod
+    def _rawg_matches(game: dict, variant: str) -> bool:
+        """Confirma que el resultado no sea un disparo en falso obvio."""
+        title = (game.get("name") or "").lower()
+        variant_l = variant.lower()
+        return bool(variant_l and (variant_l in title or title in variant_l))
 
     def _parse_rawg(self, rom_name: str, game: dict) -> GameInfo:
         info = GameInfo(name=rom_name, source="rawg")
@@ -321,8 +379,7 @@ class GameScraper:
 
     def _search_wikipedia(self, rom_name: str) -> GameInfo:
         info = GameInfo(name=rom_name, original_name=rom_name)
-        clean_name = re.sub(r'[_]+', ' ', rom_name)
-        clean_name = re.sub(r'\s+', ' ', clean_name).strip()
+        clean_name = clean_rom_name(rom_name)
 
         search_url = (
             "https://en.wikipedia.org/w/api.php?"

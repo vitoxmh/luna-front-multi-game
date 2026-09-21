@@ -17,7 +17,7 @@ import shutil
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox, QFormLayout,
     QSpinBox, QDoubleSpinBox, QPushButton, QCheckBox, QComboBox, QFileDialog,
-    QTabWidget, QLineEdit
+    QTabWidget, QLineEdit, QScrollArea, QFrame
 )
 from PySide6.QtCore import Qt, QTimer
 
@@ -74,6 +74,7 @@ class PosicionesAdmin(QWidget):
         self._cs = []                      # (checkbox, key)
         self._tooltips = []                # (widget, key)
         self._placeholders = []            # (widget, key)
+        self._corner_spins = []            # QSpinBox de esquinas (ajuste a TV)
 
         self._timer_layout = QTimer(self)
         self._timer_layout.setSingleShot(True)
@@ -216,6 +217,29 @@ class PosicionesAdmin(QWidget):
         self.sp_sy = self._ispin(form_s, box_snap, "Y", 0, 4000, 5)
         self.sp_sw = self._ispin(form_s, box_snap, "Ancho", 50, 4000, 10)
         self.sp_sh = self._ispin(form_s, box_snap, "Alto", 40, 4000, 10)
+        self.sp_skew_x = self._ispin(form_s, box_snap, "Skew X", -90, 90, 1)
+        self.sp_skew_y = self._ispin(form_s, box_snap, "Skew Y", -90, 90, 1)
+        self.sp_pinch_x = self._ispin(form_s, box_snap, "Pinch X", -100, 100, 1)
+        self.sp_pinch_y = self._ispin(form_s, box_snap, "Pinch Y", -100, 100, 1)
+        self.sp_rotation = self._ispin(form_s, box_snap, "Rotacion", -180, 180, 1)
+
+        sep_tv = QLabel("AJUSTE A TV (perspectiva)")
+        sep_tv.setProperty("clase", "hint")
+        sep_tv.setToolTip(
+            "Desplaza cada esquina del snap sobre la pantalla del TV.\n"
+            "Util cuando el televisor no esta de frente (imagen en perspectiva)."
+        )
+        self._texts.append((sep_tv, "AJUSTE A TV (perspectiva)"))
+        self._tooltips.append((sep_tv, "Desplaza cada esquina del snap sobre la pantalla del TV.\nUtil cuando el televisor no esta de frente (imagen en perspectiva)."))
+        form_s.addRow(sep_tv)
+        self.sp_tl_x = self._corner(form_s, "Sup-izq X")
+        self.sp_tl_y = self._corner(form_s, "Sup-izq Y")
+        self.sp_tr_x = self._corner(form_s, "Sup-der X")
+        self.sp_tr_y = self._corner(form_s, "Sup-der Y")
+        self.sp_bl_x = self._corner(form_s, "Inf-izq X")
+        self.sp_bl_y = self._corner(form_s, "Inf-izq Y")
+        self.sp_br_x = self._corner(form_s, "Inf-der X")
+        self.sp_br_y = self._corner(form_s, "Inf-der Y")
 
         # === Video ===
         box_video = QGroupBox("Video")
@@ -233,6 +257,9 @@ class PosicionesAdmin(QWidget):
         self.sp_vz = self._ispin(form_v, box_video, "Capa Z", 0, 99, 1)
         self.sp_vz.setToolTip("Con Z>=1 compite con las imagenes; empate gana la imagen")
         self._tooltips.append((self.sp_vz, "Con Z>=1 compite con las imagenes; empate gana la imagen"))
+        self.sp_vbr = self._ispin(form_v, box_video, "Borde redondo", 0, 999, 1)
+        self.sp_vbr.setToolTip("Radio de las esquinas redondeadas del video (px)")
+        self._tooltips.append((self.sp_vbr, "Radio de las esquinas redondeadas del video (px)"))
 
         # === Imagenes personalizadas ===
         box_img = QGroupBox("Imagenes")
@@ -340,6 +367,17 @@ class PosicionesAdmin(QWidget):
         self._form_fields.append((form, sp, label))
         return sp
 
+    def _corner(self, form, label):
+        """Spinbox de desplazamiento (px) de una esquina del snap (ajuste a TV)."""
+        sp = QSpinBox()
+        sp.setRange(-999, 999)
+        sp.setSingleStep(1)
+        sp.setKeyboardTracking(False)
+        form.addRow(label, sp)
+        self._form_fields.append((form, sp, label))
+        self._corner_spins.append(sp)
+        return sp
+
     def _dspin(self, form, box, label, mn, mx, step):
         sp = QDoubleSpinBox()
         sp.setRange(mn, mx)
@@ -390,7 +428,8 @@ class PosicionesAdmin(QWidget):
             pass
 
     def _tab_page(self, *boxes):
-        """Contenedor de pestana: grupos apilados con estiro al final."""
+        """Contenedor de pestana: grupos apilados con estiro al final.
+        Envuelto en un QScrollArea para no recortarse en pantallas pequenas."""
         w = QWidget()
         v = QVBoxLayout(w)
         v.setContentsMargins(6, 6, 6, 6)
@@ -398,7 +437,13 @@ class PosicionesAdmin(QWidget):
         for c in boxes:
             v.addWidget(c)
         v.addStretch()
-        return w
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet("QScrollArea { background: transparent; }"
+                             "QScrollArea > QWidget > QWidget { background: transparent; }")
+        scroll.setWidget(w)
+        return scroll
 
     # === Carga / guardado layout.json ===
 
@@ -461,6 +506,7 @@ class PosicionesAdmin(QWidget):
         self.sp_vw.setValue(int(v.get("w", 490)))
         self.sp_vh.setValue(int(v.get("h", 368)))
         self.sp_vz.setValue(int(v.get("z", 0)))
+        self.sp_vbr.setValue(int(v.get("border_radius", 0) or 0))
 
         sn = {}
         try:
@@ -472,6 +518,19 @@ class PosicionesAdmin(QWidget):
         self.sp_sy.setValue(int(sn.get("y", 120)))
         self.sp_sw.setValue(int(sn.get("w", 320)))
         self.sp_sh.setValue(int(sn.get("h", 240)))
+        self.sp_skew_x.setValue(int(sn.get("skew_x", 0)))
+        self.sp_skew_y.setValue(int(sn.get("skew_y", 0)))
+        self.sp_pinch_x.setValue(int(sn.get("pinch_x", 0)))
+        self.sp_pinch_y.setValue(int(sn.get("pinch_y", 0)))
+        self.sp_rotation.setValue(int(sn.get("rotation", 0)))
+        corners = sn.get("corners", {}) if isinstance(sn, dict) else {}
+        for i, key in enumerate(("tl", "tr", "bl", "br")):
+            cv = corners.get(key) if isinstance(corners, dict) else None
+            ax, ay = (0, 0)
+            if isinstance(cv, (list, tuple)) and len(cv) >= 2:
+                ax, ay = int(cv[0]), int(cv[1])
+            self._corner_spins[i * 2].setValue(ax)
+            self._corner_spins[i * 2 + 1].setValue(ay)
         self._connect()
         self._loading = False
         self._reload_images()
@@ -490,7 +549,7 @@ class PosicionesAdmin(QWidget):
         self.sp_info_ancho.valueChanged.connect(
             lambda val: self._layout_changed_info(val)
         )
-        for sp in (self.sp_vx, self.sp_vy, self.sp_vw, self.sp_vh):
+        for sp in (self.sp_vx, self.sp_vy, self.sp_vw, self.sp_vh, self.sp_vz, self.sp_vbr):
             sp.valueChanged.connect(lambda _: self._video_changed())
         self.cmb_img.currentIndexChanged.connect(self._image_selected)
         self.sp_ix.valueChanged.connect(lambda v: self._image_field_changed("x", v))
@@ -500,7 +559,11 @@ class PosicionesAdmin(QWidget):
         )
         self.sp_iz.valueChanged.connect(lambda v: self._image_field_changed("z", int(v)))
         self.chk_snap.toggled.connect(lambda _: self._snap_changed())
-        for sp in (self.sp_sx, self.sp_sy, self.sp_sw, self.sp_sh):
+        for sp in (self.sp_sx, self.sp_sy, self.sp_sw, self.sp_sh,
+               self.sp_skew_x, self.sp_skew_y, self.sp_pinch_x, self.sp_pinch_y,
+               self.sp_rotation):
+            sp.valueChanged.connect(lambda _: self._snap_changed())
+        for sp in self._corner_spins:
             sp.valueChanged.connect(lambda _: self._snap_changed())
 
     def _read_layout(self):
@@ -551,6 +614,7 @@ class PosicionesAdmin(QWidget):
             "w": self.sp_vw.value(),
             "h": self.sp_vh.value(),
             "z": self.sp_vz.value(),
+            "border_radius": self.sp_vbr.value(),
         }
         self._window._apply_video_config(v)
         self._timer_video.start()
@@ -564,6 +628,7 @@ class PosicionesAdmin(QWidget):
                 "w": self.sp_vw.value(),
                 "h": self.sp_vh.value(),
                 "z": self.sp_vz.value(),
+                "border_radius": self.sp_vbr.value(),
             }
             v = self._window._rect_real_to_stored(v_real)
             if self._system_id():
@@ -664,7 +729,7 @@ class PosicionesAdmin(QWidget):
     # === Snap ===
 
     def _snap_changed(self):
-        """Aplica la posicion del snap en vivo y agenda guardado."""
+        """Aplica la posicion/transformacion del snap en vivo y agenda guardado."""
         if self._loading:
             return
         v = {
@@ -673,9 +738,32 @@ class PosicionesAdmin(QWidget):
             "y": self.sp_sy.value(),
             "w": self.sp_sw.value(),
             "h": self.sp_sh.value(),
+            "skew_x": self.sp_skew_x.value(),
+            "skew_y": self.sp_skew_y.value(),
+            "pinch_x": self.sp_pinch_x.value(),
+            "pinch_y": self.sp_pinch_y.value(),
+            "rotation": self.sp_rotation.value(),
         }
+        corners = self._corners()
+        if corners:
+            v["corners"] = corners
         self._window._apply_snap_config(v)
+        self._window._set_snap_in_memory(v)
+        self._window._refresh_current_snap(v)
         self._timer_snap.start()
+
+    def _corners(self):
+        """Esquinas actuales del ajuste a TV (None si todas estan a cero)."""
+        s = self._corner_spins
+        vals = {
+            "tl": [s[0].value(), s[1].value()],
+            "tr": [s[2].value(), s[3].value()],
+            "bl": [s[4].value(), s[5].value()],
+            "br": [s[6].value(), s[7].value()],
+        }
+        if any(c for pair in vals.values() for c in pair):
+            return vals
+        return None
 
     def _save_snap(self):
         try:
@@ -685,7 +773,15 @@ class PosicionesAdmin(QWidget):
                 "y": self.sp_sy.value(),
                 "w": self.sp_sw.value(),
                 "h": self.sp_sh.value(),
+                "skew_x": self.sp_skew_x.value(),
+                "skew_y": self.sp_skew_y.value(),
+                "pinch_x": self.sp_pinch_x.value(),
+                "pinch_y": self.sp_pinch_y.value(),
+                "rotation": self.sp_rotation.value(),
             }
+            corners = self._corners()
+            if corners:
+                v_real["corners"] = corners
             v = self._window._rect_real_to_stored(v_real)
             if self._system_id():
                 lay = self._read_target()
@@ -864,6 +960,8 @@ class PosicionesAdmin(QWidget):
         self.sp_vw.setValue(490)
         self.sp_vh.setValue(368)
         self.sp_vz.setValue(0)
+        for sp in self._corner_spins:
+            sp.setValue(0)
         self._loading = False
         self._save_layout()
         self._save_video()

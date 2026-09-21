@@ -1,31 +1,38 @@
 {
     "images": [
         {
-            "path": "images/personalizadas/cute_1.png",
-            "x": 245,
-            "y": 120,
-            "scale": 0.7,
-            "z": 1
+            "path": "images/personalizadas/cute_2.png",
+            "x": 264,
+            "y": 136,
+            "scale": 0.64,
+            "z": 5
         }
     ],
     "video": {
         "fixed": false,
         "x": 30,
-        "y": 90,
+        "y": 78,
         "w": 490,
         "h": 368,
-        "z": 0
+        "z": 0,
+        "border_radius": 0
     },
     "snap_pos": {
         "custom": true,
-        "x": 440,
-        "y": 320,
-        "w": 330,
-        "h": 250
+        "x": 426,
+        "y": 300,
+        "w": 364,
+        "h": 308,
+        "skew_x": 0,
+        "skew_y": 0,
+        "pinch_x": 0,
+        "pinch_y": 0,
+        "rotation": 0
     },
     "wheel": {
         "base_x_percent": 0.61,
         "indicator_x_percent": 0.54,
         "line_x_start_percent": 0.52
-    }
+    },
+    "background": {}
 }
