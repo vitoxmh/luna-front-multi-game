@@ -603,6 +603,7 @@ class VentanaArcade(QMainWindow):
         self._config_dialog.controls_requested.connect(self._open_controls_from_config)
         self._config_dialog.platforms_requested.connect(self._open_platform_editor)
         self._config_dialog.rawg_key_saved.connect(self._on_rawg_key_saved)
+        self._config_dialog.cache_cleared.connect(self._on_cache_cleared)
         self._nav.register(self._config_dialog)
 
         # Cargar YA la config UI guardada: evita que el bloque de resolucion
@@ -2596,6 +2597,28 @@ class VentanaArcade(QMainWindow):
             scraper._load_from(self.backend.config)
         except Exception as e:
             print(f"[RAWG] Error al recargar scraper: {e}")
+
+    def _on_cache_cleared(self, emu_id, removed):
+        """Al borrar cache de una plataforma: limpiar la info scrapeada del
+        juego actual para que se vuelva a buscar al navegar."""
+        try:
+            if self._mode != "roms" or not self._current_roms:
+                return
+            item = self.wheel.current_item()
+            if not item:
+                return
+            rom = item.meta
+            if rom.get("emulator") != emu_id:
+                return
+            for field in ("original_name", "year", "genre", "manufacturer", "players", "source"):
+                rom.pop(field, None)
+            rom["_info_scraped"] = False
+            rom["_scrape_pendiente"] = False
+            item.name = game_display_name(rom)
+            self.info_panel.set_rom(rom)
+            print(f"[Cache] Info del juego actual limpiada ({emu_id})")
+        except Exception as e:
+            print(f"[Cache] Error al refrescar info: {e}")
 
     def _on_platforms_changed(self):
         """Al cambiar las plataformas: guardar config y re-escaneo (debounce)."""

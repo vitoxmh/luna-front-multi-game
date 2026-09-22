@@ -6,7 +6,7 @@ paths.py - Rutas base centralizadas para desarrollo y binario empaquetado.
     * Los datos que vienen dentro del bundle (solo lectura) se resuelven
       desde sys._MEIPASS (carpeta temporal de onefile / carpeta dist en onedir).
     * Los datos editables/generados en runtime (config.json, ui_config.json,
-      controles.json, game_cache.json, romslist, imagenes/roms personalizadas)
+      controles.json, game_cache/<plataforma>.json, romslist, imagenes/roms personalizadas)
       viven en el directorio del ejecutable/dist para que persistan.
 """
 import os

@@ -168,6 +168,12 @@ _CATALOG = {
     "Pega tu api_key gratuita...": "Paste your free api_key...",
     "Obtener gratis en https://rawg.io/apidocs": "Get it free at https://rawg.io/apidocs",
     "Guardar key": "Save key",
+    "Borrar cache": "Clear cache",
+    "Borra la cache de la plataforma seleccionada": "Clears the cache of the selected platform",
+    "{n} juego(s) en cache": "{n} game(s) in cache",
+    "Cache vacia para esta plataforma": "Empty cache for this platform",
+    "Sin plataforma seleccionada": "No platform selected",
+    "Borra la cache de '{name}'?": "Clear the cache of '{name}'?",
 
     # --- PlatformEditor ---
     "Editor de Plataformas": "Platform Editor",

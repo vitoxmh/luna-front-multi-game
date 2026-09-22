@@ -8,12 +8,13 @@ todo se aplica en vivo. Guardar persiste en ui_config.json via backend.
 
 import json
 import os
+import time
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QColorDialog, QCheckBox, QComboBox, QWidget, QScrollArea, QFrame,
     QGridLayout, QSpinBox, QDoubleSpinBox, QFileDialog, QAbstractSpinBox,
-    QProgressBar, QLineEdit
+    QProgressBar, QLineEdit, QMessageBox
 )
 from PySide6.QtCore import Qt, Signal, QObject, QRunnable, QThreadPool
 from PySide6.QtGui import QColor, QKeyEvent
@@ -164,6 +165,10 @@ class PlatformScrapeWorker(QRunnable):
     GUI y reporta progreso por ROM procesada. La lista de ROMs se resuelve
     en el propio worker para no bloquear la interfaz."""
 
+    # Pausa entre peticiones para respetar el rate-limit de RAWG/IGDB
+    # (evita HTTP 502 / timeouts por lanzar todas las peticiones en rafaga)
+    REQUEST_DELAY = 0.35
+
     def __init__(self, emulator_id, emulator_config):
         super().__init__()
         self.emulator_id = emulator_id
@@ -216,6 +221,7 @@ class PlatformScrapeWorker(QRunnable):
             except Exception as e:
                 print(f"[Scrape {self.emulator_id}] Error con '{name}': {e}")
             self.signals.progress.emit(i, total, name)
+            time.sleep(self.REQUEST_DELAY)
         self.signals.finished.emit(obtenidos, total)
 
 
@@ -229,6 +235,7 @@ class ConfigDialog(QDialog):
     controls_requested = Signal()  # El usuario pidio configurar los botones
     platforms_requested = Signal()  # El usuario pidio gestionar plataformas
     rawg_key_saved = Signal(str)   # El usuario guardo la API key de RAWG
+    cache_cleared = Signal(str, int)  # (emulador_id, juegos_borrados)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -592,7 +599,22 @@ class ConfigDialog(QDialog):
         self._cmb_scrape_platform.setStyleSheet(_COMBO_STYLE)
         self._cmb_scrape_platform.setToolTip("Selecciona la plataforma a scrapear")
         self._register_tooltip(self._cmb_scrape_platform, "Selecciona la plataforma a scrapear")
+        self._cmb_scrape_platform.currentIndexChanged.connect(self._refresh_scrape_cache_count)
         scraper_layout.addWidget(self._cmb_scrape_platform)
+
+        cache_row = QHBoxLayout()
+        self._lbl_scrape_cached = QLabel("")
+        self._lbl_scrape_cached.setStyleSheet("color: #9aa3c2; font-size: 11px;")
+        self._lbl_scrape_cached.setWordWrap(True)
+        cache_row.addWidget(self._lbl_scrape_cached, 1)
+        self._btn_scrape_clear = QPushButton("Borrar cache")
+        self._btn_scrape_clear.setStyleSheet(_BTN_GHOST)
+        self._btn_scrape_clear.setToolTip("Borra la cache de la plataforma seleccionada")
+        self._register_text(self._btn_scrape_clear, "Borrar cache")
+        self._register_tooltip(self._btn_scrape_clear, "Borra la cache de la plataforma seleccionada")
+        self._btn_scrape_clear.clicked.connect(self._clear_scrape_cache)
+        cache_row.addWidget(self._btn_scrape_clear)
+        scraper_layout.addLayout(cache_row)
 
         # API key RAWG (gratuita en rawg.io/apidocs) para mejor calidad de info
         rawg_row = QHBoxLayout()
@@ -1002,6 +1024,52 @@ class ConfigDialog(QDialog):
             if idx >= 0:
                 self._cmb_scrape_platform.setCurrentIndex(idx)
         self._cmb_scrape_platform.blockSignals(False)
+        self._refresh_scrape_cache_count()
+
+    def _refresh_scrape_cache_count(self):
+        """Muestra cuantos juegos tiene cacheados la plataforma seleccionada."""
+        emu_id = self._cmb_scrape_platform.currentData()
+        has_platform = bool(emu_id)
+        self._btn_scrape_clear.setEnabled(has_platform)
+        if not emu_id:
+            self._lbl_scrape_cached.setText(tr("Sin plataforma seleccionada"))
+            return
+        count = 0
+        try:
+            count = scraper.platform_cache_count(emu_id)
+        except Exception:
+            pass
+        self._btn_scrape_clear.setEnabled(count > 0)
+        if count > 0:
+            self._lbl_scrape_cached.setText(
+                tr("{n} juego(s) en cache", n=count)
+            )
+        else:
+            self._lbl_scrape_cached.setText(tr("Cache vacia para esta plataforma"))
+
+    def _clear_scrape_cache(self):
+        """Borra la cache de la plataforma seleccionada."""
+        emu_id = self._cmb_scrape_platform.currentData()
+        if not emu_id:
+            return
+        emu_config = self._scrape_emulators.get(emu_id, {})
+        name = emu_config.get("name", emu_id)
+        ask = QMessageBox.question(
+            self,
+            tr("Borrar cache"),
+            tr("Borra la cache de '{name}'?", name=name),
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if ask != QMessageBox.Yes:
+            return
+        try:
+            removed = scraper.clear_platform(emu_id)
+        except Exception as e:
+            removed = 0
+            print(f"[Config] Error al borrar cache: {e}")
+        self._refresh_scrape_cache_count()
+        self.cache_cleared.emit(emu_id, removed)
 
     def set_rawg_key(self, key):
         """Precarga la API key de RAWG en el campo."""
@@ -1020,6 +1088,7 @@ class ConfigDialog(QDialog):
         emu_config = self._scrape_emulators.get(emu_id, {})
         self._btn_scrape_start.setEnabled(False)
         self._btn_scrape_stop.setEnabled(True)
+        self._btn_scrape_clear.setEnabled(False)
         self._scrape_progress.setRange(0, 100)
         self._scrape_progress.setValue(0)
         self._lbl_scrape_status.setText(tr("Scrapeando: {rom}...", rom=emu_config.get("name", emu_id)))
@@ -1034,6 +1103,7 @@ class ConfigDialog(QDialog):
             self._scrape_worker.cancel()
             self._btn_scrape_stop.setEnabled(False)
             self._lbl_scrape_status.setText(tr("Deteniendo..."))
+            self._refresh_scrape_cache_count()
 
     def _on_scrape_started(self, total):
         self._scrape_progress.setRange(0, total)
@@ -1052,6 +1122,7 @@ class ConfigDialog(QDialog):
         self._lbl_scrape_status.setText(
             tr("{o} de {t} juegos con info", o=obtenidos, t=total)
         )
+        self._refresh_scrape_cache_count()
 
     def set_language_combo(self, lang):
         """Sincroniza el combo de idioma con 'es'|'en' sin disparar live."""

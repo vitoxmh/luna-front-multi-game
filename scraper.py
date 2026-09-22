@@ -12,8 +12,10 @@ Guarda cache en JSON para no repetir consultas.
 import json
 import re
 import time
+import socket
 import urllib.request
 import urllib.parse
+import urllib.error
 from pathlib import Path
 from dataclasses import dataclass, asdict
 from typing import Optional
@@ -21,7 +23,37 @@ from typing import Optional
 
 from paths import BASE_PATH
 
-CACHE_PATH = BASE_PATH / "game_cache.json"
+CACHE_DIR = BASE_PATH / "game_cache"           # un json por plataforma
+LEGACY_CACHE_PATH = BASE_PATH / "game_cache.json"  # version anterior (1 solo archivo)
+
+RETRYABLE_HTTP = (429, 500, 501, 502, 503, 504)  # reintentables por backoff
+
+
+def http_json(url: str, headers=None, timeout=15, retries=3,
+              method="GET", data=None):
+    """GET/POST que devuelve JSON. Ante errores transitorios (429/5xx/timeouts)
+    reintenta con backoff exponencial. Devuelve None si se agotan los reintentos
+    y lanza la ultima excepcion si no es transitoria."""
+    last_err = None
+    for attempt in range(retries):
+        try:
+            req = urllib.request.Request(url, method=method, data=data,
+                                         headers=headers or {})
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            last_err = e
+            if e.code not in RETRYABLE_HTTP or attempt >= retries - 1:
+                raise
+            time.sleep(0.5 * (2 ** attempt))
+        except (socket.timeout, TimeoutError, urllib.error.URLError) as e:
+            last_err = e
+            if attempt >= retries - 1:
+                raise
+            time.sleep(0.5 * (2 ** attempt))
+        except Exception as e:
+            raise
+    raise last_err
 
 
 @dataclass
@@ -79,12 +111,12 @@ class IGDBClient:
         })
 
         try:
-            req = urllib.request.Request(f"{self.TOKEN_URL}?{params}", method="POST")
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-                self.access_token = data["access_token"]
-                self.token_expires = time.time() + data.get("expires_in", 3600) - 300
-                return True
+            data = http_json(f"{self.TOKEN_URL}?{params}", method="POST", retries=2)
+            if not data:
+                return False
+            self.access_token = data["access_token"]
+            self.token_expires = time.time() + data.get("expires_in", 3600) - 300
+            return True
         except Exception as e:
             print(f"[Scraper] Error token IGDB: {e}")
             return False
@@ -106,15 +138,13 @@ class IGDBClient:
         }
 
         try:
-            req = urllib.request.Request(
+            data = http_json(
                 f"{self.BASE_URL}/games",
-                data=query.encode("utf-8"),
                 headers=headers,
-                method="POST"
+                data=query.encode("utf-8"),
+                method="POST",
             )
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-                return data[0] if data else None
+            return data[0] if data else None
         except Exception as e:
             print(f"[Scraper] Error IGDB: {e}")
             return None
@@ -138,14 +168,12 @@ class RAWGClient:
         })
 
         try:
-            req = urllib.request.Request(
+            data = http_json(
                 f"{self.BASE_URL}/games?{params}",
-                headers={"User-Agent": "ArcadeFrontend/1.0"}
+                headers={"User-Agent": "ArcadeFrontend/1.0"},
             )
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-                results = data.get("results", [])
-                return results[0] if results else None
+            results = data.get("results", []) if data else []
+            return results[0] if results else None
         except Exception as e:
             print(f"[Scraper] Error RAWG: {e}")
             return None
@@ -153,40 +181,113 @@ class RAWGClient:
     def get_detail(self, game_id: int) -> Optional[dict]:
         params = urllib.parse.urlencode({"key": self.api_key})
         try:
-            req = urllib.request.Request(
+            return http_json(
                 f"{self.BASE_URL}/games/{game_id}?{params}",
-                headers={"User-Agent": "ArcadeFrontend/1.0"}
+                headers={"User-Agent": "ArcadeFrontend/1.0"},
             )
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                return json.loads(resp.read().decode("utf-8"))
-        except:
+        except Exception:
             return None
 
 
 class GameScraper:
-    """Scraper principal con IGDB → RAWG → Wikipedia."""
+    """Scraper principal con IGDB → RAWG → Wikipedia.
+
+    La cache es POR PLATAFORMA: un archivo game_cache/<emulador>.json
+    con las claves siendo los nombres de ROM de esa plataforma.
+    """
 
     def __init__(self):
-        self.cache = self._load_cache()
+        self.cache = {}  # {emulador: {rom_lower: GameInfo-dict}}
         self.igdb = None
         self.rawg = None
+        self._migrate_legacy_cache()
         self._configure()
 
-    def _load_cache(self) -> dict:
-        if CACHE_PATH.exists():
-            try:
-                with open(CACHE_PATH, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except:
-                pass
-        return {}
+    def _cache_path(self, emulator: str):
+        return CACHE_DIR / f"{emulator}.json"
 
-    def _save_cache(self):
+    def _migrate_legacy_cache(self):
+        """Convierte el antiguo game_cache.json (claves 'emu:rom') en la
+        estructura nueva por plataforma y borra el archivo viejo."""
+        if not LEGACY_CACHE_PATH.exists():
+            return
         try:
-            with open(CACHE_PATH, "w", encoding="utf-8") as f:
-                json.dump(self.cache, f, indent=2, ensure_ascii=False)
-        except:
-            pass
+            with open(LEGACY_CACHE_PATH, "r", encoding="utf-8") as f:
+                legacy = json.load(f)
+            if not isinstance(legacy, dict):
+                return
+            for key, data in legacy.items():
+                if ":" in key:
+                    emu, rom = key.split(":", 1)
+                else:
+                    emu, rom = "", key
+                if emu and isinstance(data, dict):
+                    self.cache.setdefault(emu, {})[rom] = data
+            # Guardar todos los emuladores migrados
+            try:
+                CACHE_DIR.mkdir(parents=True, exist_ok=True)
+                for emu, data in self.cache.items():
+                    with open(self._cache_path(emu), "w", encoding="utf-8") as f:
+                        json.dump(data, f, indent=2, ensure_ascii=False)
+                LEGACY_CACHE_PATH.rename(LEGACY_CACHE_PATH.with_suffix(".bak"))
+                print(f"[Scraper] Cache migrada por plataforma ({len(self.cache)} emuladores)")
+            except Exception:
+                pass
+        except Exception as e:
+            print(f"[Scraper] Error al migrar cache vieja: {e}")
+
+    def load_platform(self, emulator: str) -> dict:
+        """Carga la cache de UNA plataforma (si no esta en memoria)."""
+        if emulator in self.cache:
+            return self.cache[emulator]
+        path = self._cache_path(emulator)
+        data = {}
+        if path.exists():
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception as e:
+                print(f"[Scraper] Error al cargar cache de '{emulator}': {e}")
+        if not isinstance(data, dict):
+            data = {}
+        self.cache[emulator] = data
+        return data
+
+    def save_platform(self, emulator: str):
+        """Guarda la cache de una plataforma en su propio archivo."""
+        try:
+            CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            data = self.cache.get(emulator, {})
+            with open(self._cache_path(emulator), "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"[Scraper] Error al guardar cache de '{emulator}': {e}")
+
+    def clear_platform(self, emulator: str) -> int:
+        """Borra la cache de UNA plataforma (disco y memoria).
+        Retorna cuantos juegos tenia cacheados."""
+        removed = 0
+        try:
+            path = self._cache_path(emulator)
+            if path.exists():
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        removed = len(json.load(f) or {})
+                except Exception:
+                    pass
+                path.unlink()
+        except Exception as e:
+            print(f"[Scraper] Error al borrar cache de '{emulator}': {e}")
+        self.cache.pop(emulator, None)
+        print(f"[Scraper] Cache de '{emulator}' borrada ({removed} juegos)")
+        return removed
+
+    def platform_cache_count(self, emulator: str) -> int:
+        """Cuantos juegos tiene cacheados una plataforma."""
+        try:
+            return len(self.load_platform(emulator))
+        except Exception:
+            return 0
 
     def _configure(self):
         try:
@@ -226,11 +327,10 @@ class GameScraper:
         )
 
     def get_info(self, rom_name: str, emulator: str) -> GameInfo:
-        cache_key = f"{emulator}:{rom_name}".lower()
-
-        if cache_key in self.cache:
-            data = self.cache[cache_key]
-            return GameInfo(**data)
+        cache_key = rom_name.lower()
+        cache = self.load_platform(emulator)
+        if cache_key in cache and cache[cache_key]:
+            return GameInfo(**cache[cache_key])
 
         info = GameInfo(name=rom_name, original_name=rom_name)
 
@@ -238,23 +338,23 @@ class GameScraper:
         if self.igdb:
             info = self._search_igdb(rom_name)
             if info.year > 0 or info.genre:
-                self.cache[cache_key] = asdict(info)
-                self._save_cache()
+                cache[cache_key] = asdict(info)
+                self.save_platform(emulator)
                 return info
 
         # 2. Intentar RAWG
         if self.rawg:
             info = self._search_rawg(rom_name)
             if info.year > 0 or info.genre:
-                self.cache[cache_key] = asdict(info)
-                self._save_cache()
+                cache[cache_key] = asdict(info)
+                self.save_platform(emulator)
                 return info
 
         # 3. Fallback Wikipedia
         info = self._search_wikipedia(rom_name)
 
-        self.cache[cache_key] = asdict(info)
-        self._save_cache()
+        cache[cache_key] = asdict(info)
+        self.save_platform(emulator)
         return info
 
     # === IGDB ===
